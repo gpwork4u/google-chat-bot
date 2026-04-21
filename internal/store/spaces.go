@@ -37,6 +37,7 @@ LEFT JOIN space_settings s
 LEFT JOIN spaces_directory dir
   ON dir.user_id = m.user_id AND dir.space_key = m.space_key
 WHERE m.user_id = $1
+  AND m.space_key <> ''
   AND m.observed_at >= NOW() - INTERVAL '` + recentSpacesWindow + `'
 GROUP BY m.space_key, s.disabled, s.auto_mode, dir.display_name
 ORDER BY last_at DESC NULLS LAST`
