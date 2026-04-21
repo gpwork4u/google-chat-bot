@@ -64,11 +64,15 @@ type InboxRow struct {
 func (db *DB) RecentInbox(ctx context.Context, userID int64, limit int) ([]InboxRow, error) {
 	const q = `
 SELECT
-  m.id, m.user_id, m.space_key, m.space_name, m.thread_key, m.message_key,
+  m.id, m.user_id, m.space_key,
+  COALESCE(NULLIF(dir.display_name, ''), m.space_name) AS space_name,
+  m.thread_key, m.message_key,
   m.sender_name, m.sender_is_me, m.body, m.observed_at, m.created_at,
   d.id, d.body, d.send_mode, d.status, d.auto_sent, d.confidence, d.reasoning, d.error,
   d.created_at, d.updated_at, d.sent_at
 FROM messages m
+LEFT JOIN spaces_directory dir
+  ON dir.user_id = m.user_id AND dir.space_key = m.space_key
 LEFT JOIN LATERAL (
   SELECT * FROM drafts WHERE drafts.message_id = m.id ORDER BY id DESC LIMIT 1
 ) d ON TRUE

@@ -218,7 +218,7 @@ func (p *ChatProcessor) backfillSpaceNames(ctx context.Context) error {
 			if space == nil || space.SpaceKey == "" || space.SpaceName == "" {
 				continue
 			}
-			if err := p.db.UpdateSpaceName(ctx, p.userID, space.SpaceKey, space.SpaceName); err != nil {
+			if err := p.db.UpsertSpaceName(ctx, p.userID, space.SpaceKey, space.SpaceName); err != nil {
 				slog.Warn("update space name", "raw_event_id", row.ID, "space_key", space.SpaceKey, "err", err)
 				continue
 			}
@@ -269,7 +269,7 @@ func (p *ChatProcessor) tick(ctx context.Context) error {
 				continue
 			}
 			if space != nil && space.SpaceKey != "" && space.SpaceName != "" {
-				if err := p.db.UpdateSpaceName(ctx, p.userID, space.SpaceKey, space.SpaceName); err != nil {
+				if err := p.db.UpsertSpaceName(ctx, p.userID, space.SpaceKey, space.SpaceName); err != nil {
 					slog.Warn("update space name", "raw_event_id", row.ID, "space_key", space.SpaceKey, "err", err)
 				}
 			}
@@ -342,7 +342,7 @@ func (p *ChatProcessor) Ingest(ctx context.Context, kind, url string, payload js
 			return err
 		}
 		if space != nil && space.SpaceKey != "" && space.SpaceName != "" {
-			if err := p.db.UpdateSpaceName(ctx, p.userID, space.SpaceKey, space.SpaceName); err != nil {
+			if err := p.db.UpsertSpaceName(ctx, p.userID, space.SpaceKey, space.SpaceName); err != nil {
 				return err
 			}
 			if p.hub != nil {
@@ -577,10 +577,14 @@ func (p *ChatProcessor) ingestBatchExecuteSenderSearch(ctx context.Context, url,
 
 	inserted := 0
 	for _, m := range page.Messages {
+		spaceName := m.SpaceKey
+		if known, _ := p.db.LookupSpaceName(ctx, p.userID, m.SpaceKey); known != "" {
+			spaceName = known
+		}
 		msg := &store.Message{
 			UserID:     p.userID,
 			SpaceKey:   m.SpaceKey,
-			SpaceName:  m.SpaceKey,
+			SpaceName:  spaceName,
 			MessageKey: m.MessageKey,
 			SenderName: p.userName,
 			SenderIsMe: true,
@@ -680,10 +684,14 @@ func (p *ChatProcessor) syncStyleCorpus(ctx context.Context, sessionPath string)
 			if m.MessageKey == "" || m.Body == "" {
 				continue
 			}
+			spaceName := m.SpaceKey
+			if known, _ := p.db.LookupSpaceName(ctx, userID, m.SpaceKey); known != "" {
+				spaceName = known
+			}
 			msg := &store.Message{
 				UserID:     userID,
 				SpaceKey:   m.SpaceKey,
-				SpaceName:  m.SpaceKey, // get_group backfill can rename later
+				SpaceName:  spaceName,
 				MessageKey: m.MessageKey,
 				SenderName: p.userName,
 				SenderIsMe: true,
@@ -784,10 +792,16 @@ func (p *ChatProcessor) ingestMessage(ctx context.Context, pm parser.ParsedMessa
 		}
 	}
 
+	// Prefer whatever name the directory already holds; only fall back
+	// to the placeholder space_key when we truly haven't learned one.
+	spaceName := pm.SpaceKey
+	if known, _ := p.db.LookupSpaceName(ctx, p.userID, pm.SpaceKey); known != "" {
+		spaceName = known
+	}
 	msg := &store.Message{
 		UserID:     p.userID,
 		SpaceKey:   pm.SpaceKey,
-		SpaceName:  pm.SpaceKey, // name will be backfilled from list_members later
+		SpaceName:  spaceName,
 		ThreadKey:  pm.TopicID,
 		MessageKey: pm.MessageID,
 		SenderName: pm.SenderName,
