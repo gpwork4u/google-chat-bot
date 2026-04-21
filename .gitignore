@@ -6,3 +6,5 @@ bin/
 .DS_Store
 node_modules/
 web/dist/
+session.json
+chat_session.json

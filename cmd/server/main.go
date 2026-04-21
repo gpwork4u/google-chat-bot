@@ -56,6 +56,7 @@ func main() {
 	}
 	h := hub.New()
 	chatProc := worker.NewChatProcessor(db, h, cfg.LocalUserEmail, cfg.LocalUserName)
+	chatProc.SetChatSessionFile(cfg.ChatSessionFile)
 	router := httpapi.NewRouter(cfg, db, oauthSvc, h, chatProc)
 
 	go chatProc.Run(ctx)

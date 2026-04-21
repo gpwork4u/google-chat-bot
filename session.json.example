@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy to session.json (gitignored) and fill in values captured from a live Chat session. Used only by stylesync to call batchexecute SBNmJb from the backend. Expires when cookies rotate; server will log a warning but keep running.",
+  "cookies": "SAPISID=...; SID=...; HSID=...; SSID=...; APISID=...; __Secure-1PSID=...; __Secure-3PSID=...; __Secure-1PAPISID=...; __Secure-3PAPISID=...; __Secure-1PSIDTS=...; __Secure-3PSIDTS=...",
+  "at": "AEq7Y...:1776786184467",
+  "f_sid": "4541687184572902765",
+  "bl": "boq_dynamiteuiserver_20260414.02_p1",
+  "ldap": "chunping",
+  "account_base": "/u/0"
+}
