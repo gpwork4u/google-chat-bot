@@ -327,6 +327,19 @@ loadSpaces();
 setInterval(loadInbox, 30000);
 setInterval(loadSpaces, 60000);
 
+// Reload debounce: stylesync can push inbox_changed on every page of a
+// 100-page batchexecute run, which otherwise pummels /api/inbox. Coalesce
+// bursts into one fetch per ~700ms.
+const reloadTimers = {};
+const reloadFns = { inbox: loadInbox, settings: loadSettings, spaces: loadSpaces };
+function scheduleReload(kind) {
+  if (reloadTimers[kind]) return;
+  reloadTimers[kind] = setTimeout(() => {
+    reloadTimers[kind] = null;
+    reloadFns[kind]();
+  }, 700);
+}
+
 // --- live updates via WebSocket -------------------------------------------
 let uiWS = null;
 let uiReconnectDelay = 500;
@@ -368,9 +381,9 @@ function connectUIWS() {
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
     switch (msg.type) {
-      case 'inbox_changed':   loadInbox();    break;
-      case 'settings_changed':loadSettings(); break;
-      case 'spaces_changed':  loadSpaces();   break;
+      case 'inbox_changed':   scheduleReload('inbox');    break;
+      case 'settings_changed':scheduleReload('settings'); break;
+      case 'spaces_changed':  scheduleReload('spaces');   break;
     }
   });
 }
