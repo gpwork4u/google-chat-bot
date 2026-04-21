@@ -147,13 +147,23 @@ func extractHandle(v any) (msgKey, spaceID string) {
 }
 
 func looksLikeSpaceID(s string) bool {
-	// Space IDs in webchannel frames observed so far are 11-char tokens
-	// starting with "AAQA" (e.g. "AAQAtHR3g_s") — distinct from short
-	// message ids which also have ~11 chars but never start with AAQA.
-	if len(s) < 6 {
+	// Space IDs in webchannel frames are ~11-char base64url tokens that
+	// start with "AA" (observed: AAQA…, AAAA…, AAAB…). Message short ids
+	// are base64url with a ~1/4000 chance of starting with "AA" themselves;
+	// we rely on extractHandle's visit order (msg_key at top-level first,
+	// space_id nested inside [[…]]) to disambiguate when both do.
+	if len(s) < 6 || len(s) > 32 {
 		return false
 	}
-	return s[:4] == "AAQA"
+	if s[0] != 'A' || s[1] != 'A' {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'A' && r <= 'Z') && !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 func looksLikeShortID(s string) bool {
