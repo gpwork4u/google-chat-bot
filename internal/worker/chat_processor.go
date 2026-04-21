@@ -4,23 +4,28 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/ailabs-tw/google-chat-bot/internal/hub"
 	"github.com/ailabs-tw/google-chat-bot/internal/parser"
 	"github.com/ailabs-tw/google-chat-bot/internal/store"
 )
 
 const (
-	pollInterval    = 3 * time.Second
-	batchSize       = 200
-	urlChatAPILK    = "%/api/%"
-	urlGetGroupLK   = "%get_group%"
+	pollInterval  = 3 * time.Second // primary catch-up; push path (Ingest) is additive
+	batchSize     = 200
+	urlChatAPILK  = "%/api/%"
+	urlGetGroupLK = "%get_group%"
 )
 
 type ChatProcessor struct {
 	db        *store.DB
+	hub       *hub.Hub
+	mu        sync.Mutex // guards ingest ordering so ticker + push don't race
 	lastID    int64
 	userEmail string
 	userName  string
@@ -29,9 +34,10 @@ type ChatProcessor struct {
 
 const defaultLocalUserName = "Local Extension User"
 
-func NewChatProcessor(db *store.DB, localUserEmail, localUserName string) *ChatProcessor {
+func NewChatProcessor(db *store.DB, h *hub.Hub, localUserEmail, localUserName string) *ChatProcessor {
 	return &ChatProcessor{
 		db:        db,
+		hub:       h,
 		userEmail: strings.ToLower(localUserEmail),
 		userName:  localUserName,
 	}
@@ -168,7 +174,149 @@ func (p *ChatProcessor) tick(ctx context.Context) error {
 		"messages_inserted", inserted,
 		"drafts_created", drafted,
 		"high_watermark", p.lastID)
+	if p.hub != nil {
+		if inserted > 0 {
+			p.hub.InboxChanged()
+		}
+		if drafted > 0 {
+			p.broadcastPending(ctx)
+		}
+	}
 	return nil
+}
+
+// Ingest parses a single raw event payload (same shape as inject-main.js
+// emits) on the hot path and broadcasts any resulting inbox updates. Called
+// from the /ws/ext handler as soon as the extension observes a response;
+// the ticker above is a fallback for anything this path missed.
+//
+// payload is the raw_events.payload JSON — at minimum it should include
+// respText for API responses we care about.
+func (p *ChatProcessor) Ingest(ctx context.Context, kind, url string, payload json.RawMessage) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if err := p.ensureUser(ctx); err != nil {
+		return err
+	}
+
+	// webchannel-frame carries a pre-parsed BrowserChannel frame (see
+	// inject-main.js). Handle it before the respText-based parsers below.
+	if kind == "webchannel-frame" {
+		return p.ingestWebchannelFrame(ctx, url, payload)
+	}
+
+	var env struct {
+		RespText string `json:"respText"`
+	}
+	// best-effort: some payloads (e.g. ws-out, debug) have no respText and we just skip
+	_ = json.Unmarshal(payload, &env)
+	respText := env.RespText
+
+	var inserted, drafted int
+	switch {
+	case strings.Contains(url, "list_topics"):
+		parsed, err := parser.ParseListTopicsResponse(respText)
+		if err != nil {
+			slog.Warn("ingest parse list_topics", "err", err, "url", url, "respText_len", len(respText))
+			return err
+		}
+		for _, m := range parsed {
+			mi, di := p.ingestMessage(ctx, m)
+			inserted += mi
+			drafted += di
+		}
+		slog.Info("ingest push list_topics", "url", url, "parsed", len(parsed), "inserted", inserted, "drafted", drafted)
+
+	case strings.Contains(url, "get_group"):
+		space, err := parser.ParseGetGroupResponse(respText)
+		if err != nil {
+			slog.Warn("ingest parse get_group", "err", err, "url", url)
+			return err
+		}
+		if space != nil && space.SpaceKey != "" && space.SpaceName != "" {
+			if err := p.db.UpdateSpaceName(ctx, p.userID, space.SpaceKey, space.SpaceName); err != nil {
+				return err
+			}
+			if p.hub != nil {
+				p.hub.SpacesChanged()
+			}
+		}
+	}
+
+	if p.hub != nil {
+		if inserted > 0 {
+			p.hub.InboxChanged()
+		}
+		if drafted > 0 {
+			p.broadcastPending(ctx)
+		}
+	}
+	return nil
+}
+
+// ingestWebchannelFrame handles one decoded BrowserChannel frame (see
+// inject-main.js). New-message frames land here first; noop/heartbeat and
+// other event types parse to zero messages and are silently dropped.
+func (p *ChatProcessor) ingestWebchannelFrame(ctx context.Context, url string, payload json.RawMessage) error {
+	var env struct {
+		Frame json.RawMessage `json:"frame"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return err
+	}
+	parsed, err := parser.ParseWebchannelFrame(env.Frame)
+	if err != nil {
+		slog.Warn("parse webchannel frame", "err", err, "url", shortWebchannelURL(url), "bytes", len(env.Frame))
+		return err
+	}
+	if len(parsed) == 0 {
+		return nil
+	}
+	var inserted, drafted int
+	for _, m := range parsed {
+		mi, di := p.ingestMessage(ctx, m)
+		inserted += mi
+		drafted += di
+	}
+	slog.Info("webchannel push",
+		"url", shortWebchannelURL(url),
+		"parsed", len(parsed),
+		"inserted", inserted,
+		"drafted", drafted)
+	if p.hub != nil {
+		if inserted > 0 {
+			p.hub.InboxChanged()
+		}
+		if drafted > 0 {
+			p.broadcastPending(ctx)
+		}
+	}
+	return nil
+}
+
+func shortWebchannelURL(u string) string {
+	// strip query to keep logs readable
+	if i := strings.Index(u, "?"); i > 0 {
+		return u[:i]
+	}
+	return u
+}
+
+// broadcastPending pushes all currently-approved pending drafts to subscribed
+// extensions. Safe to over-send: content.js dedupes by draft_id.
+func (p *ChatProcessor) broadcastPending(ctx context.Context) {
+	if p.hub == nil {
+		return
+	}
+	pending, err := p.db.ListApprovedPending(ctx, p.userID, 20)
+	if err != nil {
+		slog.Warn("broadcast pending list", "err", err)
+		return
+	}
+	for _, item := range pending {
+		p.hub.Pending(item)
+	}
 }
 
 // ingestMessage inserts/dedups a parsed message and creates a pending draft

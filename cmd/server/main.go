@@ -13,6 +13,7 @@ import (
 
 	"github.com/ailabs-tw/google-chat-bot/internal/config"
 	"github.com/ailabs-tw/google-chat-bot/internal/httpapi"
+	"github.com/ailabs-tw/google-chat-bot/internal/hub"
 	"github.com/ailabs-tw/google-chat-bot/internal/oauth"
 	"github.com/ailabs-tw/google-chat-bot/internal/store"
 	"github.com/ailabs-tw/google-chat-bot/internal/worker"
@@ -53,9 +54,11 @@ func main() {
 	} else {
 		slog.Info("oauth disabled; extension-only mode")
 	}
-	router := httpapi.NewRouter(cfg, db, oauthSvc)
+	h := hub.New()
+	chatProc := worker.NewChatProcessor(db, h, cfg.LocalUserEmail, cfg.LocalUserName)
+	router := httpapi.NewRouter(cfg, db, oauthSvc, h, chatProc)
 
-	go worker.NewChatProcessor(db, cfg.LocalUserEmail, cfg.LocalUserName).Run(ctx)
+	go chatProc.Run(ctx)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

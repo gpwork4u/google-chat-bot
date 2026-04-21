@@ -6,13 +6,16 @@ import (
 	"net/http"
 
 	"github.com/ailabs-tw/google-chat-bot/internal/config"
+	"github.com/ailabs-tw/google-chat-bot/internal/hub"
 	"github.com/ailabs-tw/google-chat-bot/internal/oauth"
 	"github.com/ailabs-tw/google-chat-bot/internal/store"
 )
 
-func NewRouter(cfg *config.Config, db *store.DB, oauthSvc *oauth.Service) http.Handler {
+func NewRouter(cfg *config.Config, db *store.DB, oauthSvc *oauth.Service, h *hub.Hub, ing Ingestor) http.Handler {
 	mux := http.NewServeMux()
-	extensionRoutes(mux, db, cfg)
+	extensionRoutes(mux, db, cfg, h, ing)
+	wsRoutes(mux, db, cfg, h, ing)
+	debugRoutes(mux, db, cfg, h)
 	webRoutes(mux)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
