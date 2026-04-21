@@ -25,6 +25,9 @@ func claudeRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.H
 	mux.HandleFunc("POST /api/claude/reply", func(w http.ResponseWriter, r *http.Request) {
 		handleClaudeReply(w, r, db, cfg, h)
 	})
+	mux.HandleFunc("GET /api/claude/style-profile", func(w http.ResponseWriter, r *http.Request) {
+		handleStyleProfile(w, r, db, cfg)
+	})
 }
 
 func handleClaudePending(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
@@ -160,6 +163,36 @@ func handleClaudeReply(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 		"draft_id": draft.ID,
 		"status":   status,
 	})
+}
+
+func handleStyleProfile(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+	ctx := r.Context()
+	user, err := requireLocalUser(ctx, db, cfg)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	limit := 80
+	if s := r.URL.Query().Get("limit"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 500 {
+			limit = n
+		}
+	}
+	minLength := 2
+	if s := r.URL.Query().Get("min_length"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 0 && n <= 200 {
+			minLength = n
+		}
+	}
+	spaceKey := strings.TrimSpace(r.URL.Query().Get("space_key"))
+
+	profile, err := db.BuildStyleProfile(ctx, user.ID, spaceKey, minLength, limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	profile.LocalUserName = user.Name
+	writeJSON(w, http.StatusOK, profile)
 }
 
 // pushPendingForClaude is a thin wrapper that broadcasts the current
