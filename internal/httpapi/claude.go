@@ -48,16 +48,23 @@ func handleClaudePending(w http.ResponseWriter, r *http.Request, db *store.DB, c
 	if pending == nil {
 		pending = []store.ClaudePending{}
 	}
-	// Surface the filter state so the agent knows which conditions are on.
+	// Surface the filter + send-mode state so the agent knows which
+	// conditions are on and whether to auto-send its reply.
 	settings, _ := db.GetUserSettings(ctx, user.ID)
-	var mentionOnly bool
+	var mentionOnly, autoMode bool
+	var blocked string
 	if settings != nil {
 		mentionOnly = settings.ReplyOnlyWhenMentioned
+		autoMode = settings.AutoMode
+		blocked = settings.BlockedKeywords
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"pending":                    pending,
-		"reply_only_when_mentioned":  mentionOnly,
-		"local_user_name":            user.Name,
+		"pending":                   pending,
+		"reply_only_when_mentioned": mentionOnly,
+		"auto_mode":                 autoMode,
+		"blocked_keywords":          blocked,
+		"local_user_name":           user.Name,
+		"local_user_email":          user.Email,
 	})
 }
 
