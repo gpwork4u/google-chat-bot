@@ -875,24 +875,19 @@ func (p *ChatProcessor) ingestMessage(ctx context.Context, pm parser.ParsedMessa
 		return 1, 0
 	}
 
-	draft := &store.Draft{
-		MessageID: msg.ID,
-		Body:      "[stub draft] 收到「" + truncate(pm.Body, 40) + "」",
-		Model:     "stub",
-		SendMode:  "new_topic",
-		Status:    "pending",
-		Reasoning: "Claude 未接上，之後會生成真實 draft",
-	}
-	if settings.AutoMode && !matchesBlockedKeyword(pm.Body, settings.BlockedKeywords) {
-		draft.Status = "approved"
-		draft.AutoSent = true
-		draft.Reasoning = "auto-mode approved (stub)"
-	}
-	if err := p.db.InsertDraft(ctx, draft); err != nil {
-		slog.Warn("insert draft", "err", err)
-		return 1, 0
-	}
-	return 1, 1
+	// No draft is generated here. The Claude Code chat-drafts skill is
+	// the single draft producer now — it reads /api/claude/pending, decides
+	// whether each message deserves a reply, and posts back via
+	// /api/claude/reply with auto_send driven by settings.AutoMode. Keeping
+	// the old "stub draft" here would either spam the inbox with fake
+	// placeholders or pre-populate drafts that the skill can no longer
+	// generate for (the pending endpoint filters d.id IS NULL).
+	//
+	// BlockedKeywords is still returned in the pending response so the
+	// skill can refuse to reply to sensitive messages; we don't need to
+	// short-circuit here.
+	_ = settings
+	return 1, 0
 }
 
 func matchesBlockedKeyword(body, csv string) bool {

@@ -254,39 +254,10 @@ func handleExtEvent(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *c
 		return
 	}
 
-	// Only draft when the message is new AND from someone else.
+	// Drafts are produced by the Claude Code chat-drafts skill via
+	// /api/claude/reply; this legacy endpoint only records the raw
+	// message.
 	draftCreated := false
-	if inserted && !msg.SenderIsMe {
-		settings, err := db.GetUserSettings(ctx, user.ID)
-		if err != nil {
-			slog.Error("get settings", "err", err)
-			settings = &store.UserSettings{UserID: user.ID}
-		}
-
-		// Placeholder draft until Claude is wired in.
-		draft := &store.Draft{
-			MessageID: msg.ID,
-			Body:      "[stub draft] 收到你說：" + truncate(msg.Body, 40),
-			Model:     "stub",
-			SendMode:  "new_topic",
-			Status:    "pending",
-			Reasoning: "stub — Claude 尚未接上",
-		}
-
-		blocked := matchesBlockedKeyword(msg.Body, settings.BlockedKeywords)
-		if settings.AutoMode && !blocked {
-			draft.Status = "approved"
-			draft.AutoSent = true
-			draft.Reasoning = "auto-mode approved (stub)"
-		} else if settings.AutoMode && blocked {
-			draft.Reasoning = "auto-mode but blocked keyword hit — held for approval"
-		}
-		if err := db.InsertDraft(ctx, draft); err != nil {
-			writeErr(w, http.StatusInternalServerError, "insert draft: "+err.Error())
-			return
-		}
-		draftCreated = true
-	}
 
 	if h != nil && (inserted || draftCreated) {
 		h.InboxChanged()
