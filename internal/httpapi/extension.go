@@ -68,7 +68,7 @@ func extensionRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hu
 	})
 
 	mux.HandleFunc("GET /api/spaces", func(w http.ResponseWriter, r *http.Request) {
-		handleListSpaces(w, r, db, cfg)
+		handleListSpaces(w, r, db, cfg, ing)
 	})
 	mux.HandleFunc("POST /api/spaces/toggle", func(w http.ResponseWriter, r *http.Request) {
 		handleToggleSpace(w, r, db, cfg, h)
@@ -157,14 +157,18 @@ func pushPendingForUser(ctx context.Context, db *store.DB, h *hub.Hub) {
 	}
 }
 
-func handleListSpaces(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+func handleListSpaces(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, ing Ingestor) {
 	ctx := r.Context()
 	user, err := requireLocalUser(ctx, db, cfg)
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, err.Error())
 		return
 	}
-	spaces, err := db.ListSpaces(ctx, user.ID)
+	var since time.Time
+	if ing != nil {
+		since = ing.SessionStart()
+	}
+	spaces, err := db.ListSpaces(ctx, user.ID, since)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

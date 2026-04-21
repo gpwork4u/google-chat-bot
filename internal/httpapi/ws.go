@@ -14,10 +14,11 @@ import (
 	"github.com/ailabs-tw/google-chat-bot/internal/store"
 )
 
-// Ingestor is the subset of worker.ChatProcessor that ws.go needs. Declared
-// as an interface here so httpapi doesn't hard-depend on worker internals.
+// Ingestor is the subset of worker.ChatProcessor that httpapi needs.
+// Declared as an interface so httpapi doesn't hard-depend on worker.
 type Ingestor interface {
 	Ingest(ctx context.Context, kind, url string, payload json.RawMessage) error
+	SessionStart() time.Time
 }
 
 var wsUpgrader = websocket.Upgrader{
