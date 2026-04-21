@@ -24,6 +24,13 @@ func Open(ctx context.Context, url string) (*DB, error) {
 	}
 	cfg.MaxConns = 10
 	cfg.MaxConnLifetime = time.Hour
+	// Put every connection into Asia/Taipei. Internal timestamptz storage
+	// is still UTC — only the textual representation in responses / logs
+	// shifts, which is what psql queries and error messages now show.
+	if cfg.ConnConfig.RuntimeParams == nil {
+		cfg.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	cfg.ConnConfig.RuntimeParams["timezone"] = "Asia/Taipei"
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
