@@ -91,20 +91,41 @@ func (p *ChatProcessor) ensureUser(ctx context.Context) error {
 	return nil
 }
 
-// backfillMembers scans every list_topics response already in raw_events and
-// upserts every sender we can find into chat_members. Called once on startup
-// so webchannel push frames (which carry only sender_id) can be enriched
-// with display_name / email going forward.
+// backfillMembers populates chat_members from everything we've already
+// captured. Two sources:
+//   1. list_topics responses — each message row carries sender name+email.
+//   2. list_members responses that included the optional profile block
+//      (triggered when the user opens the member directory / browse space).
+//
+// Called once on startup so webchannel push frames (which carry only
+// sender_id) can be enriched with a display_name going forward.
 func (p *ChatProcessor) backfillMembers(ctx context.Context) error {
+	fromMessages, err := p.backfillMembersFromListTopics(ctx)
+	if err != nil {
+		return err
+	}
+	fromProfiles, err := p.backfillMembersFromListMembers(ctx)
+	if err != nil {
+		return err
+	}
+	count, _ := p.db.CountChatMembers(ctx, p.userID)
+	slog.Info("members backfill completed",
+		"from_list_topics", fromMessages,
+		"from_list_members", fromProfiles,
+		"directory_size", count)
+	return nil
+}
+
+func (p *ChatProcessor) backfillMembersFromListTopics(ctx context.Context) (int, error) {
 	var lastID int64
-	var seen, upserted int
+	var upserted int
 	for {
 		rows, err := p.db.RawEventsSince(ctx, lastID, "%list_topics%", batchSize)
 		if err != nil {
-			return err
+			return upserted, err
 		}
 		if len(rows) == 0 {
-			break
+			return upserted, nil
 		}
 		for _, row := range rows {
 			if row.ID > lastID {
@@ -115,21 +136,50 @@ func (p *ChatProcessor) backfillMembers(ctx context.Context) error {
 				continue
 			}
 			for _, m := range parsed {
-				seen++
 				if m.SenderID == "" {
 					continue
 				}
 				if err := p.db.UpsertChatMember(ctx, p.userID, m.SenderID, m.SenderName, m.SenderEmail); err != nil {
-					slog.Warn("upsert chat member", "err", err, "member", m.SenderID)
+					slog.Warn("upsert chat member (list_topics)", "err", err, "member", m.SenderID)
 					continue
 				}
 				upserted++
 			}
 		}
 	}
-	count, _ := p.db.CountChatMembers(ctx, p.userID)
-	slog.Info("members backfill completed", "scanned_messages", seen, "upserts", upserted, "directory_size", count)
-	return nil
+}
+
+func (p *ChatProcessor) backfillMembersFromListMembers(ctx context.Context) (int, error) {
+	var lastID int64
+	var upserted int
+	for {
+		rows, err := p.db.RawEventsSince(ctx, lastID, "%list_members%", batchSize)
+		if err != nil {
+			return upserted, err
+		}
+		if len(rows) == 0 {
+			return upserted, nil
+		}
+		for _, row := range rows {
+			if row.ID > lastID {
+				lastID = row.ID
+			}
+			profiles, err := parser.ParseListMembersProfiles(row.RespText)
+			if err != nil {
+				continue
+			}
+			for _, prof := range profiles {
+				if prof.ID == "" {
+					continue
+				}
+				if err := p.db.UpsertChatMember(ctx, p.userID, prof.ID, prof.DisplayName, prof.Email); err != nil {
+					slog.Warn("upsert chat member (list_members)", "err", err, "member", prof.ID)
+					continue
+				}
+				upserted++
+			}
+		}
+	}
 }
 
 func (p *ChatProcessor) backfillSpaceNames(ctx context.Context) error {
@@ -284,6 +334,28 @@ func (p *ChatProcessor) Ingest(ctx context.Context, kind, url string, payload js
 			}
 			if p.hub != nil {
 				p.hub.SpacesChanged()
+			}
+		}
+
+	case strings.Contains(url, "list_members"):
+		profiles, err := parser.ParseListMembersProfiles(respText)
+		if err != nil {
+			slog.Warn("ingest parse list_members", "err", err, "url", url)
+			return err
+		}
+		for _, prof := range profiles {
+			if prof.ID == "" {
+				continue
+			}
+			if err := p.db.UpsertChatMember(ctx, p.userID, prof.ID, prof.DisplayName, prof.Email); err != nil {
+				slog.Warn("upsert chat member push", "err", err, "member", prof.ID)
+			}
+		}
+		if len(profiles) > 0 {
+			slog.Info("ingest push list_members profiles", "count", len(profiles))
+			if p.hub != nil {
+				// sender names may have changed for existing messages
+				p.hub.InboxChanged()
 			}
 		}
 	}
