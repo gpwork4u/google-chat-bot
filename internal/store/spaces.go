@@ -47,6 +47,45 @@ ORDER BY last_at DESC NULLS LAST`
 	return out, rows.Err()
 }
 
+// ListSpacesMissingName returns the distinct space_keys we've observed for
+// this user that still have a placeholder-looking name (empty, equal to the
+// key itself, or of the form "space:xxx"). Used at startup to decide which
+// spaces need an active get_group refresh.
+//
+// The returned strings are the raw space ids (no "space:" prefix), ready to
+// drop straight into the extension's get_group request.
+func (db *DB) ListSpacesMissingName(ctx context.Context, userID int64) ([]string, error) {
+	const q = `
+SELECT DISTINCT space_key
+FROM messages
+WHERE user_id = $1
+  AND space_key <> ''
+  AND space_key LIKE 'space:%'
+  AND (
+    space_name = ''
+    OR space_name = space_key
+    OR space_name LIKE 'space:%'
+  )
+ORDER BY space_key`
+	rows, err := db.Query(ctx, q, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var sk string
+		if err := rows.Scan(&sk); err != nil {
+			return nil, err
+		}
+		// messages.space_key is "space:XXX"; strip the prefix.
+		if len(sk) > len("space:") {
+			out = append(out, sk[len("space:"):])
+		}
+	}
+	return out, rows.Err()
+}
+
 // UpsertSpaceDisabled toggles the disabled flag for a space.
 func (db *DB) UpsertSpaceDisabled(ctx context.Context, userID int64, spaceKey string, disabled bool) error {
 	const q = `

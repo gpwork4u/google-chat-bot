@@ -194,7 +194,8 @@ func handleExtWS(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *conf
 	}()
 
 	// post-connect: flush any currently-approved drafts so the extension
-	// doesn't miss work that landed while it was disconnected.
+	// doesn't miss work that landed while it was disconnected, and request
+	// a space-name refresh for anything still showing a placeholder.
 	if user, err := requireLocalUser(ctx, db, cfg); err == nil && user != nil {
 		if pending, err := db.ListApprovedPending(ctx, user.ID, 20); err == nil {
 		flushPending:
@@ -204,6 +205,12 @@ func handleExtWS(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *conf
 				case <-ctx.Done():
 					break flushPending
 				}
+			}
+		}
+		if missing, err := db.ListSpacesMissingName(ctx, user.ID); err == nil && len(missing) > 0 {
+			select {
+			case out <- hub.ExtEvent{Type: "refresh_spaces", SpaceIDs: missing}:
+			case <-ctx.Done():
 			}
 		}
 	}

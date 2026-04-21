@@ -12,8 +12,9 @@ type UIEvent struct {
 
 // ExtEvent is delivered to extension WebSocket clients.
 type ExtEvent struct {
-	Type    string `json:"type"`              // "pending"
-	Pending any    `json:"pending,omitempty"` // the approved draft row (same shape as /api/ext/pending)
+	Type     string   `json:"type"`                // "pending" | "refresh_spaces"
+	Pending  any      `json:"pending,omitempty"`   // approved draft row (same shape as /api/ext/pending)
+	SpaceIDs []string `json:"space_ids,omitempty"` // for refresh_spaces: raw space ids to look up via get_group
 }
 
 type Hub struct {
@@ -87,3 +88,10 @@ func (h *Hub) SettingsChanged() { h.PublishUI(UIEvent{Type: "settings_changed"})
 func (h *Hub) SpacesChanged()   { h.PublishUI(UIEvent{Type: "spaces_changed"}) }
 
 func (h *Hub) Pending(item any) { h.PublishExt(ExtEvent{Type: "pending", Pending: item}) }
+
+func (h *Hub) RefreshSpaces(spaceIDs []string) {
+	if len(spaceIDs) == 0 {
+		return
+	}
+	h.PublishExt(ExtEvent{Type: "refresh_spaces", SpaceIDs: spaceIDs})
+}

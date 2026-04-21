@@ -55,6 +55,7 @@ func (p *ChatProcessor) Run(ctx context.Context) {
 	if err := p.backfillMembers(ctx); err != nil {
 		slog.Warn("members backfill failed", "err", err)
 	}
+	p.requestSpaceNameRefresh(ctx)
 
 	// Start from 0 and let InsertOrGetMessage dedupe by message_key. This way
 	// historical responses already in raw_events get backfilled on first run.
@@ -417,6 +418,41 @@ func shortWebchannelURL(u string) string {
 		return u[:i]
 	}
 	return u
+}
+
+// requestSpaceNameRefresh asks any connected extensions to call get_group
+// for every space we still have no real name for. The extension replays
+// the response through the normal raw path; Ingest picks it up and updates
+// messages.space_name. Safe to repeat — if the extension is offline the
+// event is dropped; ws.go re-fires on every new WS connect so eventually
+// at least one browser tab handles it.
+func (p *ChatProcessor) requestSpaceNameRefresh(ctx context.Context) {
+	if p.hub == nil {
+		return
+	}
+	ids, err := p.db.ListSpacesMissingName(ctx, p.userID)
+	if err != nil {
+		slog.Warn("list spaces missing name", "err", err)
+		return
+	}
+	if len(ids) == 0 {
+		slog.Info("space name refresh: all spaces already named")
+		return
+	}
+	slog.Info("space name refresh: requesting", "count", len(ids))
+	p.hub.RefreshSpaces(ids)
+}
+
+// RequestSpaceNameRefresh is the public entry so non-worker code (e.g. the
+// WS handler on new connect) can kick the same flow.
+func (p *ChatProcessor) RequestSpaceNameRefresh(ctx context.Context) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.ensureUser(ctx); err != nil {
+		slog.Warn("refresh spaces: ensure user", "err", err)
+		return
+	}
+	p.requestSpaceNameRefresh(ctx)
 }
 
 // broadcastPending pushes all currently-approved pending drafts to subscribed
