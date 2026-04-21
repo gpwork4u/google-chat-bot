@@ -185,8 +185,8 @@ SELECT EXISTS (
     AND d.status = 'sent'
     AND d.body = $3
     AND d.sent_at IS NOT NULL
-    AND d.sent_at >= $4 - INTERVAL '1 hour'
-    AND d.sent_at <= $4 + INTERVAL '5 minutes'
+    AND d.sent_at >= $4::timestamptz - INTERVAL '1 hour'
+    AND d.sent_at <= $4::timestamptz + INTERVAL '5 minutes'
 )`
 	var ok bool
 	if err := db.QueryRow(ctx, q, userID, spaceKey, body, observedAt).Scan(&ok); err != nil {
