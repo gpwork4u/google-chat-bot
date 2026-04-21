@@ -94,6 +94,14 @@ func (h *Hub) InboxChanged()    { h.PublishUI(UIEvent{Type: "inbox_changed"}) }
 func (h *Hub) SettingsChanged() { h.PublishUI(UIEvent{Type: "settings_changed"}) }
 func (h *Hub) SpacesChanged()   { h.PublishUI(UIEvent{Type: "spaces_changed"}) }
 
+// ActivityBump is shorthand for "a new message just arrived" — the inbox
+// obviously needs to refresh, and so does the Channel 設定 list (a
+// previously-silent space may have just re-entered the 30-minute window).
+func (h *Hub) ActivityBump() {
+	h.InboxChanged()
+	h.SpacesChanged()
+}
+
 func (h *Hub) Pending(item any) { h.PublishExt(ExtEvent{Type: "pending", Pending: item}) }
 
 func (h *Hub) RefreshSpaces(spaceIDs []string) {
