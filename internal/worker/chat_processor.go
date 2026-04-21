@@ -300,7 +300,7 @@ func (p *ChatProcessor) tick(ctx context.Context) error {
 		"high_watermark", p.lastID)
 	if p.hub != nil {
 		if inserted > 0 {
-			p.hub.InboxChanged()
+			p.hub.ActivityBump()
 		}
 		if drafted > 0 {
 			p.broadcastPending(ctx)
@@ -370,7 +370,7 @@ func (p *ChatProcessor) Ingest(ctx context.Context, kind, url string, payload js
 	case strings.Contains(url, "batchexecute") && strings.Contains(url, "SBNmJb"):
 		p.ingestBatchExecuteSenderSearch(ctx, url, respText)
 		if p.hub != nil {
-			p.hub.InboxChanged()
+			p.hub.ActivityBump()
 		}
 
 	case strings.Contains(url, "get_user_settings"):
@@ -417,7 +417,7 @@ func (p *ChatProcessor) Ingest(ctx context.Context, kind, url string, payload js
 
 	if p.hub != nil {
 		if inserted > 0 {
-			p.hub.InboxChanged()
+			p.hub.ActivityBump()
 		}
 		if drafted > 0 {
 			p.broadcastPending(ctx)
@@ -457,7 +457,7 @@ func (p *ChatProcessor) ingestWebchannelFrame(ctx context.Context, url string, p
 		"drafted", drafted)
 	if p.hub != nil {
 		if inserted > 0 {
-			p.hub.InboxChanged()
+			p.hub.ActivityBump()
 		}
 		if drafted > 0 {
 			p.broadcastPending(ctx)
