@@ -26,7 +26,7 @@ func (db *DB) ListSpaces(ctx context.Context, userID int64) ([]SpaceRow, error) 
 	q := `
 SELECT
   m.space_key,
-  MAX(m.space_name) AS space_name,
+  COALESCE(NULLIF(dir.display_name, ''), MAX(m.space_name)) AS space_name,
   COALESCE(s.disabled, TRUE) AS disabled,
   s.auto_mode,
   count(*) AS message_count,
@@ -34,9 +34,11 @@ SELECT
 FROM messages m
 LEFT JOIN space_settings s
   ON s.user_id = m.user_id AND s.space_key = m.space_key
+LEFT JOIN spaces_directory dir
+  ON dir.user_id = m.user_id AND dir.space_key = m.space_key
 WHERE m.user_id = $1
   AND m.observed_at >= NOW() - INTERVAL '` + recentSpacesWindow + `'
-GROUP BY m.space_key, s.disabled, s.auto_mode
+GROUP BY m.space_key, s.disabled, s.auto_mode, dir.display_name
 ORDER BY last_at DESC NULLS LAST`
 	rows, err := db.Query(ctx, q, userID)
 	if err != nil {
@@ -100,6 +102,54 @@ INSERT INTO space_settings (user_id, space_key, disabled) VALUES ($1, $2, $3)
 ON CONFLICT (user_id, space_key) DO UPDATE SET disabled = EXCLUDED.disabled, updated_at = NOW()`
 	_, err := db.Exec(ctx, q, userID, spaceKey, disabled)
 	return err
+}
+
+// UpsertSpaceName is the authoritative write for space_key → display_name.
+// Empty display_name values are rejected so placeholders never clobber a
+// real name. Both the spaces_directory row and the denormalized mirror
+// on messages.space_name get updated atomically.
+func (db *DB) UpsertSpaceName(ctx context.Context, userID int64, spaceKey, displayName string) error {
+	if spaceKey == "" || displayName == "" {
+		return nil
+	}
+	const qDir = `
+INSERT INTO spaces_directory (user_id, space_key, display_name, updated_at)
+VALUES ($1, $2, $3, NOW())
+ON CONFLICT (user_id, space_key) DO UPDATE SET
+    display_name = EXCLUDED.display_name,
+    updated_at = NOW()`
+	if _, err := db.Exec(ctx, qDir, userID, spaceKey, displayName); err != nil {
+		return err
+	}
+	// Mirror to messages.space_name only where we'd be overwriting a
+	// placeholder — same guard UpdateSpaceName originally had.
+	const qMsg = `
+UPDATE messages
+SET space_name = $3
+WHERE user_id = $1
+  AND space_key = $2
+  AND (space_name = '' OR space_name = space_key OR space_name LIKE 'space:%')`
+	_, err := db.Exec(ctx, qMsg, userID, spaceKey, displayName)
+	return err
+}
+
+// LookupSpaceName returns the canonical display name for a space, or ""
+// if we've never learned one. Callers can use that empty return to fall
+// back to the raw space_key for UI purposes.
+func (db *DB) LookupSpaceName(ctx context.Context, userID int64, spaceKey string) (string, error) {
+	if spaceKey == "" {
+		return "", nil
+	}
+	var name string
+	err := db.QueryRow(ctx,
+		`SELECT display_name FROM spaces_directory WHERE user_id=$1 AND space_key=$2`,
+		userID, spaceKey,
+	).Scan(&name)
+	if err != nil {
+		// No row → unknown name; don't treat as error.
+		return "", nil
+	}
+	return name, nil
 }
 
 // IsSpaceDisabled returns whether drafting should be skipped for this space.
