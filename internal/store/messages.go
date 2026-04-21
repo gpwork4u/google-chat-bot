@@ -173,8 +173,8 @@ SELECT id, user_id, space_key, space_name, thread_key, message_key,
 FROM messages
 WHERE user_id = $1 AND space_key = $2
   AND COALESCE(thread_key, '') <> COALESCE($3, '')
-  AND observed_at BETWEEN $4 - $5::interval AND $4 + $5::interval
-ORDER BY ABS(EXTRACT(EPOCH FROM (observed_at - $4)))
+  AND observed_at BETWEEN ($4::timestamptz - $5::interval) AND ($4::timestamptz + $5::interval)
+ORDER BY ABS(EXTRACT(EPOCH FROM (observed_at - $4::timestamptz)))
 LIMIT $6`
 	interval := fmt.Sprintf("%d seconds", int(aroundWindow.Seconds()))
 	rows, err := db.Query(ctx, qAround, userID, anchor.SpaceKey, anchor.ThreadKey, anchor.ObservedAt, interval, aroundLimit)
