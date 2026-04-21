@@ -16,7 +16,7 @@ type SpaceRow struct {
 
 // recentSpacesWindow bounds the UI's Channel 設定 list to "anything we've
 // seen activity in lately" — the full history gets noisy fast.
-const recentSpacesWindow = "14 days"
+const recentSpacesWindow = "30 minutes"
 
 // ListSpaces returns spaces that have received at least one message within
 // recentSpacesWindow, along with their current settings. Drafting defaults
