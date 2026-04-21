@@ -47,36 +47,61 @@ Response：
 
 如果 `pending` 是空陣列：回報「沒有待處理訊息」並結束。
 
-### 2. 對每則訊息判斷
+### 2. 先拉完整前後文（必做，不跳）
 
-對每則 pending message，先決定**要不要回**：
-
-- 若 body 是純 emoji / 純 "OK" / "收到" / "了解" 這類 ack，skip（對方不期待回應）
-- 若 body 含 `blocked_keywords` 裡任一 keyword，skip 並建議使用者在 UI 手動處理
-- 若看起來是 bot / 自動通知 / system message，skip
-- 若內容意義不明或你無法產生有意義回覆，**傾向 skip**（寧缺勿濫）
-
-要回的才走下一步。
-
-### 3. 拉 thread + 同 space 附近 context（強烈建議）
+對每則 pending message，**先拉 context 才能判斷**要不要回、怎麼回：
 
 ```bash
-curl -s "http://localhost:8080/api/messages/<message_id>/context?window_minutes=30&limit=10"
+curl -s "http://localhost:8080/api/messages/<message_id>/context?window_minutes=720&limit=200"
 ```
+
+（12 小時、最多 200 筆 — 值故意拉很大，讓你看到整個 thread 脈絡 + 同 space 當天在聊什麼。上限是 7 天 / 500 筆。）
 
 Response：
 
 ```json
 {
   "anchor": { ... },
-  "thread": [ ...same thread 按時間排 ],
-  "around": [ ...同 space 其他 topic, ±30 min ]
+  "thread": [ ...同 thread 按時間排，無筆數上限 ],
+  "around": [ ...同 space 其他 topic，±720 分鐘內，最多 200 筆 ]
 }
 ```
 
-讀完才能判斷對方問的是什麼、之前是不是已經有人接話了。
+### 3. 判斷要不要回（**傾向不回**）
 
-如果 `thread.length > 1` 而且最後一則已經是**你自己**（`sender_is_me=true`）發的，skip — 等對方再回。
+預設值：**skip**。只在真的值得回、而且能有意義回應時，才進入第 4 步。
+
+**必 skip（這幾類直接放過，連 draft 都不產）**：
+
+- body 是純 ack / 表情：「OK」「收到」「了解」「好」「👍」「謝謝」
+- 明顯的 bot / system message（`sender_name` 帶 "App"、"Bot"、「Google Meet」這類）
+- 包含 `blocked_keywords` 的任何一個 keyword
+- 有人**正在問別人**（例如 body 開頭是 `@某某某` 但不是 `@<local_user_name>`）
+  - `mentioned=true` 且 mention 的名字是自己才算 at 我
+- 公告 / 廣播類訊息（「提醒大家」「FYI」「明天有活動」— 不需要你特地回）
+- thread 裡最後一則已經是**你自己**發的（`sender_is_me=true`）— 等對方接
+- thread 最後幾則看起來**事情已經有解**（對方已道謝 / 確認收到 / 問題被別人答了）
+
+**傾向 skip 的灰色地帶（寧缺勿濫）**：
+
+- 訊息意義不明，看不懂對方想幹嘛
+- 對方問很具體的事實，你不知道正確答案（亂回會誤導）
+- 純閒聊（午餐吃什麼、天氣 😅）— 這種你回也沒價值
+- 工作協調需要跟別人確認才能答（排程、專案狀態、別人的工作）
+- 任何你會猶豫的訊息 → **skip**
+
+**政策紅線（一定 skip，不可跨）**：
+
+- 涉及金錢 / 匯款 / 報價 / 付款條件
+- 對外客戶溝通
+- 合約 / 法務相關
+- 密碼 / API key / 憑證
+- 人事 / 薪資 / 績效
+- 任何「承諾交付時間或結果」的語句（例：「明天一定完成」、「交給我沒問題」）
+
+只有當訊息**明顯適合你回**、你也**有把握回得好**的時候，才繼續下一步。
+
+重要：skill 存在的目的是幫使用者減少噪音，不是衝量。**每一則都傾向 skip** 才對。
 
 ### 4. 產生回覆
 
@@ -119,19 +144,22 @@ curl -s -X POST http://localhost:8080/api/claude/reply \
 
 ### 6. 每則輸出一行 log
 
-格式：
+格式（reason 用繁中簡短說明）：
 
 ```
 → replied #123 "ok 我看一下…" (auto_sent=true)
-→ skipped #124 GP Wang: "收到" (pure ack)
-→ replied #125 "這個我晚點處理" (auto_sent=false, awaiting approval)
+→ skipped #124 GP Wang: "收到" (純 ack)
+→ skipped #125 Jordan: "明天會議幾點?" (排程事，不知道答案)
+→ replied #126 "這個我晚點處理" (auto_sent=false, 等 UI approve)
 ```
 
 全部跑完印 summary：
 
 ```
-Processed 5 messages: replied=3 (auto_sent=2) skipped=2
+Processed 5 messages: replied=2 (auto_sent=1) skipped=3
 ```
+
+skip 是正常且期望的行為 — 不要因為 pending 很多就覺得一定要回幾則。空回 0 則是合理的結果。
 
 ## 邊界情況
 
