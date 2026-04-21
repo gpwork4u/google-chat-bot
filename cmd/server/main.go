@@ -20,6 +20,13 @@ import (
 )
 
 func main() {
+	// Local timezone: all log timestamps and time.Now() calls display in
+	// UTC+8 so the ops output matches what the user sees on the clock.
+	// Falls back to whatever the OS reports if the tz database entry is
+	// missing (e.g. a stripped container image).
+	if loc, err := time.LoadLocation("Asia/Taipei"); err == nil {
+		time.Local = loc
+	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	cfg, err := config.Load()
