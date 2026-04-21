@@ -290,7 +290,7 @@ async function loadSpaces() {
     counter.innerText = `(啟用 ${enabled}/${(spaces || []).length})`;
     const host = document.getElementById('space-list');
     if (!spaces || spaces.length === 0) {
-      host.innerHTML = '<div class="empty" style="padding:8px 0;">最近 30 分鐘沒有收到任何訊息。空間預設不會產 draft — 要的話把下面的開關打開。</div>';
+      host.innerHTML = '<div class="empty" style="padding:8px 0;">最近 30 分鐘沒有收到任何訊息（訊息也只保留 30 分鐘）。空間預設不會產 draft — 要的話把下面的開關打開。</div>';
       return;
     }
     host.innerHTML = spaces.map(s => `
