@@ -43,7 +43,11 @@ func handleClaudePending(w http.ResponseWriter, r *http.Request, db *store.DB, c
 			limit = n
 		}
 	}
-	pending, err := db.ListClaudePending(ctx, user.ID, limit)
+	debug := false
+	if s := strings.ToLower(r.URL.Query().Get("debug")); s == "1" || s == "true" || s == "yes" {
+		debug = true
+	}
+	pending, err := db.ListClaudePending(ctx, user.ID, limit, debug)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -68,6 +72,7 @@ func handleClaudePending(w http.ResponseWriter, r *http.Request, db *store.DB, c
 		"blocked_keywords":          blocked,
 		"local_user_name":           user.Name,
 		"local_user_email":          user.Email,
+		"debug":                     debug,
 	})
 }
 
@@ -77,12 +82,13 @@ type claudeReplyReq struct {
 	SendMode  string `json:"send_mode"` // "reply_thread" (default) | "new_topic"
 	Model     string `json:"model"`     // optional label
 	Reasoning string `json:"reasoning"` // optional, stored for audit
-	// AutoSend defaults to true for this endpoint: Claude Code is an
-	// autonomous agent and the whole point is to bypass the approval queue.
-	// Set to false to leave the draft in "pending" for human review.
-	AutoSend *bool `json:"auto_send"`
 }
 
+// handleClaudeReply is idempotent per message. The skill just posts the
+// chosen reply; backend decides whether to send now (auto_mode=ON →
+// approved, extension sends it) or park it for the user to approve in
+// the UI (auto_mode=OFF). Re-posting for the same message updates the
+// existing draft rather than stacking duplicates.
 func handleClaudeReply(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
 	var req claudeReplyReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -130,25 +136,11 @@ func handleClaudeReply(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 		return
 	}
 
-	autoSend := true
-	if req.AutoSend != nil {
-		autoSend = *req.AutoSend
-	}
-	status := "pending"
-	if autoSend {
-		status = "approved"
-	}
+	settings, _ := db.GetUserSettings(ctx, user.ID)
+	autoSend := settings != nil && settings.AutoMode
 
-	draft := &store.Draft{
-		MessageID: msg.ID,
-		Body:      req.Body,
-		Model:     model,
-		SendMode:  sendMode,
-		Status:    status,
-		AutoSent:  autoSend,
-		Reasoning: reasoning,
-	}
-	if err := db.InsertDraft(ctx, draft); err != nil {
+	draftID, status, err := db.UpsertDraftForMessage(ctx, msg.ID, req.Body, model, sendMode, reasoning, autoSend)
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -159,9 +151,10 @@ func handleClaudeReply(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":       true,
-		"draft_id": draft.ID,
-		"status":   status,
+		"ok":        true,
+		"draft_id":  draftID,
+		"status":    status,
+		"auto_sent": autoSend,
 	})
 }
 

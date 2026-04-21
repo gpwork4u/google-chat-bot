@@ -218,6 +218,51 @@ FROM messages WHERE id = $1 AND user_id = $2`
 	return &m, err
 }
 
+// UpsertDraftForMessage inserts or updates the actionable draft for a
+// given message: if there is already one in pending / approved state,
+// its body / reasoning / send_mode get overwritten and the status is
+// re-evaluated. Already-sent or rejected drafts are left alone and a
+// new row is inserted instead. Used by /api/claude/reply so the skill
+// can re-run idempotently without stacking up stale pending drafts.
+func (db *DB) UpsertDraftForMessage(ctx context.Context, messageID int64, body, model, sendMode, reasoning string, autoSend bool) (draftID int64, status string, err error) {
+	status = "pending"
+	if autoSend {
+		status = "approved"
+	}
+	// Find the most recent actionable row, if any.
+	var existingID int64
+	err = db.QueryRow(ctx,
+		`SELECT id FROM drafts WHERE message_id=$1 AND status IN ('pending','approved') ORDER BY id DESC LIMIT 1`,
+		messageID).Scan(&existingID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", err
+	}
+	if existingID > 0 {
+		_, err = db.Exec(ctx,
+			`UPDATE drafts SET body=$2, model=$3, send_mode=$4, reasoning=$5, status=$6, auto_sent=$7, error='', updated_at=NOW()
+             WHERE id=$1`,
+			existingID, body, model, sendMode, reasoning, status, autoSend)
+		if err != nil {
+			return 0, "", err
+		}
+		return existingID, status, nil
+	}
+	// No actionable draft → insert fresh.
+	d := &Draft{
+		MessageID: messageID,
+		Body:      body,
+		Model:     model,
+		SendMode:  sendMode,
+		Status:    status,
+		AutoSent:  autoSend,
+		Reasoning: reasoning,
+	}
+	if err := db.InsertDraft(ctx, d); err != nil {
+		return 0, "", err
+	}
+	return d.ID, status, nil
+}
+
 func (db *DB) InsertDraft(ctx context.Context, d *Draft) error {
 	const q = `
 INSERT INTO drafts (message_id, body, model, send_mode, status, auto_sent, confidence, reasoning)
