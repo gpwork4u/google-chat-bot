@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ailabs-tw/google-chat-bot/internal/googleapi"
 	"github.com/ailabs-tw/google-chat-bot/internal/hub"
 	"github.com/ailabs-tw/google-chat-bot/internal/parser"
 	"github.com/ailabs-tw/google-chat-bot/internal/store"
@@ -23,13 +24,14 @@ const (
 )
 
 type ChatProcessor struct {
-	db        *store.DB
-	hub       *hub.Hub
-	mu        sync.Mutex // guards ingest ordering so ticker + push don't race
-	lastID    int64
-	userEmail string
-	userName  string
-	userID    int64
+	db              *store.DB
+	hub             *hub.Hub
+	mu              sync.Mutex // guards ingest ordering so ticker + push don't race
+	lastID          int64
+	userEmail       string
+	userName        string
+	userID          int64
+	chatSessionFile string
 }
 
 const defaultLocalUserName = "Local Extension User"
@@ -41,6 +43,12 @@ func NewChatProcessor(db *store.DB, h *hub.Hub, localUserEmail, localUserName st
 		userEmail: strings.ToLower(localUserEmail),
 		userName:  localUserName,
 	}
+}
+
+// SetChatSessionFile enables the startup style-corpus sync. Pass an empty
+// string to disable.
+func (p *ChatProcessor) SetChatSessionFile(path string) {
+	p.chatSessionFile = path
 }
 
 func (p *ChatProcessor) Run(ctx context.Context) {
@@ -56,6 +64,9 @@ func (p *ChatProcessor) Run(ctx context.Context) {
 		slog.Warn("members backfill failed", "err", err)
 	}
 	p.requestSpaceNameRefresh(ctx)
+	if p.chatSessionFile != "" {
+		go p.syncStyleCorpus(ctx, p.chatSessionFile)
+	}
 
 	// Start from 0 and let InsertOrGetMessage dedupe by message_key. This way
 	// historical responses already in raw_events get backfilled on first run.
@@ -453,6 +464,110 @@ func (p *ChatProcessor) RequestSpaceNameRefresh(ctx context.Context) {
 		return
 	}
 	p.requestSpaceNameRefresh(ctx)
+}
+
+// syncStyleCorpus paginates backwards through the user's own messages via
+// /DynamiteWebUi/data/batchexecute?rpcids=SBNmJb until we've either pulled
+// styleSyncMaxRecords rows or the API returns nothing / the same page
+// twice. Rows land in the messages table with sender_is_me=true, which:
+//   * enriches the style corpus downstream tooling reads from
+//   * back-fills historical rows that predated the WasRecentlySentDraft
+//     detection so we stop mistakenly drafting replies to ourselves
+//
+// Session is optional and session tokens expire regularly; failures here
+// only log and never block startup.
+const (
+	styleSyncMaxRecords = 10000
+	styleSyncPageSize   = 97
+)
+
+func (p *ChatProcessor) syncStyleCorpus(ctx context.Context, sessionPath string) {
+	sess, err := googleapi.LoadSession(sessionPath)
+	if err != nil {
+		slog.Warn("stylesync: load session failed", "err", err, "path", sessionPath)
+		return
+	}
+	if sess == nil {
+		return
+	}
+	p.mu.Lock()
+	if err := p.ensureUser(ctx); err != nil {
+		p.mu.Unlock()
+		slog.Warn("stylesync: ensure user", "err", err)
+		return
+	}
+	userID := p.userID
+	p.mu.Unlock()
+
+	before := time.Now().Add(24 * time.Hour).UnixMilli()
+	total := 0
+	page := 0
+	for total < styleSyncMaxRecords {
+		page++
+		body, err := sess.SearchOwnMessages(ctx, before, styleSyncPageSize)
+		if err != nil {
+			slog.Warn("stylesync: search failed", "err", err, "page", page)
+			return
+		}
+		decoded, err := parser.ParseBatchExecuteSBNmJb(body)
+		if err != nil {
+			slog.Warn("stylesync: parse failed", "err", err, "page", page)
+			return
+		}
+		if decoded == nil || len(decoded.Messages) == 0 {
+			slog.Info("stylesync: no more results", "total_fetched", total, "pages", page-1)
+			return
+		}
+
+		inserted := 0
+		for _, m := range decoded.Messages {
+			if m.MessageKey == "" || m.Body == "" {
+				continue
+			}
+			msg := &store.Message{
+				UserID:     userID,
+				SpaceKey:   m.SpaceKey,
+				SpaceName:  m.SpaceKey, // get_group backfill can rename later
+				MessageKey: m.MessageKey,
+				SenderName: p.userName,
+				SenderIsMe: true,
+				Body:       m.Body,
+				ObservedAt: m.ObservedAt,
+			}
+			newRow, err := p.db.InsertOrGetMessage(ctx, msg)
+			if err != nil {
+				slog.Warn("stylesync: insert", "err", err, "msg", m.MessageKey)
+				continue
+			}
+			if newRow {
+				inserted++
+			}
+			// Force sender_is_me=true on any existing row whose message_key
+			// we've now confirmed is ours (catches historical rows mis-
+			// flagged as sender_is_me=false).
+			_ = p.db.MarkMessageAsMine(ctx, userID, m.MessageKey)
+		}
+		total += len(decoded.Messages)
+		slog.Info("stylesync: page done",
+			"page", page,
+			"fetched", len(decoded.Messages),
+			"inserted", inserted,
+			"running_total", total,
+			"oldest", decoded.OldestObserved.Format(time.RFC3339),
+		)
+
+		if decoded.OldestObserved.IsZero() {
+			return
+		}
+		nextBefore := decoded.OldestObserved.UnixMilli()
+		if nextBefore >= before {
+			// No progress → break to avoid an infinite loop.
+			slog.Info("stylesync: no forward progress, stopping", "total", total)
+			return
+		}
+		before = nextBefore
+	}
+	slog.Info("stylesync: reached record cap", "total", total)
 }
 
 // broadcastPending pushes all currently-approved pending drafts to subscribed

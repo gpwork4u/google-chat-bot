@@ -25,6 +25,11 @@ type Config struct {
 	StateSigningKey    []byte
 
 	AnthropicAPIKey string
+
+	// Path to a JSON file with browser session credentials for
+	// calling Chat's private batchexecute RPCs from the backend
+	// (style corpus sync). Empty = feature disabled.
+	ChatSessionFile string
 }
 
 func Load() (*Config, error) {
@@ -40,6 +45,7 @@ func Load() (*Config, error) {
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 		GoogleRedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
 		AnthropicAPIKey:    os.Getenv("ANTHROPIC_API_KEY"),
+		ChatSessionFile:    os.Getenv("CHAT_SESSION_FILE"),
 	}
 
 	var missing []string

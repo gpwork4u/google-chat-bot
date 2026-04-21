@@ -54,6 +54,9 @@ LEFT JOIN users u
   ON u.id = m.user_id
 WHERE m.user_id = $1
   AND m.sender_is_me = FALSE
+  -- belt-and-braces: historical rows may still be mis-flagged, so also
+  -- reject anything whose sender_name matches the local user's name.
+  AND (COALESCE(u.name, '') = '' OR m.sender_name IS NULL OR m.sender_name = '' OR lower(m.sender_name) <> lower(u.name))
   AND d.id IS NULL
   AND COALESCE(s.disabled, TRUE) = FALSE
   AND (

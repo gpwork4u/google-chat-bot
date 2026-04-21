@@ -257,6 +257,18 @@ WHERE id = $1`
 	return nil
 }
 
+// MarkMessageAsMine flips sender_is_me=TRUE on an existing row. Used by
+// the style-corpus sync path: anything returned by the sender-ldap search
+// RPC is by definition sent by us, so mis-flagged historical rows get
+// corrected here (preventing /api/claude/pending and ingestMessage from
+// treating them as replies from "someone else").
+func (db *DB) MarkMessageAsMine(ctx context.Context, userID int64, messageKey string) error {
+	_, err := db.Exec(ctx,
+		`UPDATE messages SET sender_is_me = TRUE WHERE user_id=$1 AND message_key=$2 AND sender_is_me = FALSE`,
+		userID, messageKey)
+	return err
+}
+
 func (db *DB) UpdateSpaceName(ctx context.Context, userID int64, spaceKey, spaceName string) error {
 	const q = `
 UPDATE messages
