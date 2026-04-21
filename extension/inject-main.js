@@ -123,6 +123,34 @@
     return !!headersObj.authorization;
   }
 
+  // Emit the full auth token (unredacted) to the isolated-world content
+  // script so it can forward to the backend. Dedup: only re-emit when one of
+  // the tracked values actually changes, to avoid flooding the WS.
+  let lastTokenFingerprint = '';
+  function maybeEmitToken(url, headersObj) {
+    if (!headersObj) return;
+    const authorization = headersObj.authorization || '';
+    const xsrf = headersObj['x-framework-xsrf-token'] || '';
+    const authuser = headersObj['x-goog-authuser'] || '';
+    if (!authorization && !xsrf) return;
+    const fp = authorization + '|' + xsrf + '|' + authuser;
+    if (fp === lastTokenFingerprint) return;
+    lastTokenFingerprint = fp;
+    try {
+      window.dispatchEvent(new CustomEvent('chat-agent-token', {
+        detail: {
+          authorization,
+          x_framework_xsrf_token: xsrf,
+          x_goog_authuser: authuser,
+          for_url: url,
+          observed_at: new Date().toISOString(),
+        },
+      }));
+    } catch (e) {
+      // event dispatch should never fail; swallow
+    }
+  }
+
   function cloneJSON(value) {
     return value == null ? value : JSON.parse(JSON.stringify(value));
   }
@@ -516,6 +544,7 @@
         headers: redactHeaders(requestHeaders),
         status: resp?.status || 0,
       });
+      maybeEmitToken(url, requestHeaders);
     }
     return resp;
   };
@@ -555,6 +584,61 @@
       this.addEventListener('error', () => {
         emit('xhr-error', meta.url, { method: meta.method });
       });
+
+      // BrowserChannel long-poll: the 'load' event only fires when the whole
+      // session ends, which can be minutes. New Chat messages arrive as
+      // streamed chunks inside responseText before load. We hook
+      // readystatechange (state 3 = LOADING) to pull the new bytes and cut
+      // them along BrowserChannel's length-prefixed frame format.
+      if (/\/webchannel\/events/i.test(String(meta.url))) {
+        this.__chatAgentChunkCursor = 0;
+        this.__chatAgentChunkBuffer = '';
+        const pumpWebchannel = () => {
+          let txt = '';
+          try {
+            txt = String(this.responseText || '');
+          } catch {
+            return;
+          }
+          if (txt.length <= this.__chatAgentChunkCursor) return;
+          const fresh = txt.slice(this.__chatAgentChunkCursor);
+          this.__chatAgentChunkCursor = txt.length;
+          this.__chatAgentChunkBuffer += fresh;
+          // Strip any leading )]}' XSSI prefix once.
+          if (this.__chatAgentChunkBuffer.startsWith(")]}'")) {
+            this.__chatAgentChunkBuffer = this.__chatAgentChunkBuffer.slice(4).replace(/^\s+/, '');
+          }
+          while (true) {
+            const nl = this.__chatAgentChunkBuffer.indexOf('\n');
+            if (nl < 0) return;
+            const header = this.__chatAgentChunkBuffer.slice(0, nl).trim();
+            const n = Number(header);
+            if (!Number.isFinite(n) || n <= 0) {
+              // unrecognizable header; drop a line and try again
+              this.__chatAgentChunkBuffer = this.__chatAgentChunkBuffer.slice(nl + 1);
+              continue;
+            }
+            // header counts chars in the body. If we don't have enough yet, wait for more.
+            if (this.__chatAgentChunkBuffer.length < nl + 1 + n) return;
+            const payload = this.__chatAgentChunkBuffer.slice(nl + 1, nl + 1 + n);
+            this.__chatAgentChunkBuffer = this.__chatAgentChunkBuffer.slice(nl + 1 + n);
+            let parsed;
+            try {
+              parsed = JSON.parse(payload);
+            } catch {
+              // keep going with next frame
+              continue;
+            }
+            emit('webchannel-frame', meta.url, {
+              method: meta.method,
+              frame: parsed,
+            });
+          }
+        };
+        this.addEventListener('readystatechange', () => {
+          if (this.readyState >= 3) pumpWebchannel();
+        });
+      }
     }
     if (shouldCaptureAuth(meta.url, meta.headers || {})) {
       emit('auth-observed', meta.url, {
@@ -562,6 +646,7 @@
         method: meta.method,
         headers: redactHeaders(meta.headers || {}),
       });
+      maybeEmitToken(meta.url, meta.headers || {});
     }
     return _send.apply(this, arguments);
   };

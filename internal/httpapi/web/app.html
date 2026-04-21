@@ -239,8 +239,63 @@ async function loadSpaces() {
 loadSettings();
 loadInbox();
 loadSpaces();
-setInterval(loadInbox, 4000);
-setInterval(loadSpaces, 30000);
+
+// Fallback polling in case the WS goes down; primary path is server push below.
+setInterval(loadInbox, 30000);
+setInterval(loadSpaces, 60000);
+
+// --- live updates via WebSocket -------------------------------------------
+let uiWS = null;
+let uiReconnectDelay = 500;
+const UI_RECONNECT_MAX = 15000;
+let uiWSDotEl = null;
+
+function setLiveIndicator(connected) {
+  if (!uiWSDotEl) {
+    uiWSDotEl = document.createElement('span');
+    uiWSDotEl.title = 'Live update 連線狀態';
+    uiWSDotEl.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:6px;';
+    statusEl.parentNode.insertBefore(uiWSDotEl, statusEl);
+  }
+  uiWSDotEl.style.background = connected ? '#137333' : '#c5221f';
+  uiWSDotEl.title = connected ? 'Live 連線正常' : 'Live 連線中斷 — 已切換至 polling';
+}
+
+function connectUIWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${proto}//${location.host}/ws/ui`;
+  try {
+    uiWS = new WebSocket(url);
+  } catch (e) {
+    scheduleUIReconnect();
+    return;
+  }
+  uiWS.addEventListener('open', () => {
+    uiReconnectDelay = 500;
+    setLiveIndicator(true);
+  });
+  uiWS.addEventListener('close', () => {
+    setLiveIndicator(false);
+    scheduleUIReconnect();
+  });
+  uiWS.addEventListener('error', () => {
+    // 'close' will follow
+  });
+  uiWS.addEventListener('message', (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    switch (msg.type) {
+      case 'inbox_changed':   loadInbox();    break;
+      case 'settings_changed':loadSettings(); break;
+      case 'spaces_changed':  loadSpaces();   break;
+    }
+  });
+}
+function scheduleUIReconnect() {
+  setTimeout(connectUIWS, uiReconnectDelay);
+  uiReconnectDelay = Math.min(UI_RECONNECT_MAX, Math.round(uiReconnectDelay * 1.7));
+}
+connectUIWS();
 </script>
 </body>
 </html>

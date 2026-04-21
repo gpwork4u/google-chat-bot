@@ -10,24 +10,28 @@ import (
 	"time"
 
 	"github.com/ailabs-tw/google-chat-bot/internal/config"
+	"github.com/ailabs-tw/google-chat-bot/internal/hub"
 	"github.com/ailabs-tw/google-chat-bot/internal/store"
 )
 
 // extensionRoutes registers the endpoints consumed by the Chrome extension
 // and the inbox UI. These are localhost-only and intentionally unauthenticated
 // for the single-user MVP.
-func extensionRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config) {
+//
+// WS-era note: /api/ext/raw /api/ext/debug /api/ext/pending /api/ext/sent are
+// preserved as HTTP fallbacks. The primary path is now /ws/ext (see ws.go).
+func extensionRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.Hub, ing Ingestor) {
 	mux.HandleFunc("POST /api/ext/events", func(w http.ResponseWriter, r *http.Request) {
-		handleExtEvent(w, r, db, cfg)
+		handleExtEvent(w, r, db, cfg, h)
 	})
 	mux.HandleFunc("GET /api/ext/pending", func(w http.ResponseWriter, r *http.Request) {
 		handleExtPending(w, r, db, cfg)
 	})
 	mux.HandleFunc("POST /api/ext/sent", func(w http.ResponseWriter, r *http.Request) {
-		handleExtSent(w, r, db)
+		handleExtSent(w, r, db, h)
 	})
 	mux.HandleFunc("POST /api/ext/raw", func(w http.ResponseWriter, r *http.Request) {
-		handleExtRaw(w, r, db, cfg)
+		handleExtRaw(w, r, db, cfg, ing)
 	})
 	mux.HandleFunc("POST /api/ext/debug", func(w http.ResponseWriter, r *http.Request) {
 		handleExtDebug(w, r, db, cfg)
@@ -37,31 +41,31 @@ func extensionRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config) {
 		handleInbox(w, r, db, cfg)
 	})
 	mux.HandleFunc("POST /api/drafts/{id}/approve", func(w http.ResponseWriter, r *http.Request) {
-		handleDraftAction(w, r, db, "approved")
+		handleDraftAction(w, r, db, "approved", h)
 	})
 	mux.HandleFunc("POST /api/drafts/{id}/reject", func(w http.ResponseWriter, r *http.Request) {
-		handleDraftAction(w, r, db, "rejected")
+		handleDraftAction(w, r, db, "rejected", h)
 	})
 
 	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) {
 		handleGetSettings(w, r, db, cfg)
 	})
 	mux.HandleFunc("POST /api/settings/auto-mode", func(w http.ResponseWriter, r *http.Request) {
-		handleSetAutoMode(w, r, db, cfg)
+		handleSetAutoMode(w, r, db, cfg, h)
 	})
 
 	mux.HandleFunc("GET /api/drafts/pending", func(w http.ResponseWriter, r *http.Request) {
 		handlePendingDrafts(w, r, db, cfg)
 	})
 	mux.HandleFunc("PATCH /api/drafts/{id}", func(w http.ResponseWriter, r *http.Request) {
-		handlePatchDraft(w, r, db)
+		handlePatchDraft(w, r, db, h)
 	})
 
 	mux.HandleFunc("GET /api/spaces", func(w http.ResponseWriter, r *http.Request) {
 		handleListSpaces(w, r, db, cfg)
 	})
 	mux.HandleFunc("POST /api/spaces/toggle", func(w http.ResponseWriter, r *http.Request) {
-		handleToggleSpace(w, r, db, cfg)
+		handleToggleSpace(w, r, db, cfg, h)
 	})
 }
 
@@ -96,7 +100,7 @@ type patchDraftReq struct {
 	Model      string   `json:"model"`
 }
 
-func handlePatchDraft(w http.ResponseWriter, r *http.Request, db *store.DB) {
+func handlePatchDraft(w http.ResponseWriter, r *http.Request, db *store.DB, h *hub.Hub) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -119,9 +123,32 @@ func handlePatchDraft(w http.ResponseWriter, r *http.Request, db *store.DB) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if h != nil {
+		h.InboxChanged()
+		if status == "approved" {
+			pushPendingForUser(r.Context(), db, h)
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "draft_id": id, "status": status, "auto_sent": autoSent,
 	})
+}
+
+// pushPendingForUser broadcasts the currently-approved pending drafts to any
+// connected extension WebSockets. Best-effort; over-sending is fine because
+// content.js dedupes by draft_id.
+func pushPendingForUser(ctx context.Context, db *store.DB, h *hub.Hub) {
+	user, err := db.EnsureLocalUser(ctx, "", "")
+	if err != nil || user == nil {
+		return
+	}
+	pending, err := db.ListApprovedPending(ctx, user.ID, 20)
+	if err != nil {
+		return
+	}
+	for _, item := range pending {
+		h.Pending(item)
+	}
 }
 
 func handleListSpaces(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
@@ -147,7 +174,7 @@ type toggleSpaceReq struct {
 	Disabled bool    `json:"disabled"`
 }
 
-func handleToggleSpace(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+func handleToggleSpace(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
 	ctx := r.Context()
 	user, err := requireLocalUser(ctx, db, cfg)
 	if err != nil {
@@ -168,6 +195,9 @@ func handleToggleSpace(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if h != nil {
+		h.SpacesChanged()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "space_key": spaceKey, "disabled": req.Disabled})
 }
 
@@ -184,7 +214,7 @@ type extEventReq struct {
 	ObservedAt string `json:"observed_at"` // ISO 8601
 }
 
-func handleExtEvent(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+func handleExtEvent(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
 	var req extEventReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -252,6 +282,13 @@ func handleExtEvent(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *c
 		draftCreated = true
 	}
 
+	if h != nil && (inserted || draftCreated) {
+		h.InboxChanged()
+		if draftCreated {
+			pushPendingForUser(ctx, db, h)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
 		"message_id":    msg.ID,
@@ -271,7 +308,7 @@ type debugEventReq struct {
 	Data  map[string]any `json:"data"`
 }
 
-func handleExtRaw(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+func handleExtRaw(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, ing Ingestor) {
 	// Body may be large (response bodies can be tens of KB). Cap at 256KB.
 	r.Body = http.MaxBytesReader(w, r.Body, 256*1024)
 	var req rawEventReq
@@ -292,6 +329,11 @@ func handleExtRaw(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *con
 		slog.Error("insert raw event", "err", err)
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if ing != nil {
+		if err := ing.Ingest(ctx, req.Kind, req.URL, req.Data); err != nil {
+			slog.Warn("ingest raw", "err", err, "url", req.URL)
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -350,7 +392,7 @@ type extSentReq struct {
 	Error   string `json:"error"`
 }
 
-func handleExtSent(w http.ResponseWriter, r *http.Request, db *store.DB) {
+func handleExtSent(w http.ResponseWriter, r *http.Request, db *store.DB, h *hub.Hub) {
 	var req extSentReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -363,6 +405,9 @@ func handleExtSent(w http.ResponseWriter, r *http.Request, db *store.DB) {
 	if err := db.UpdateDraftStatus(r.Context(), req.DraftID, status, req.Error); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if h != nil {
+		h.InboxChanged()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -388,7 +433,7 @@ func handleInbox(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *conf
 	writeJSON(w, http.StatusOK, map[string]any{"items": rows})
 }
 
-func handleDraftAction(w http.ResponseWriter, r *http.Request, db *store.DB, newStatus string) {
+func handleDraftAction(w http.ResponseWriter, r *http.Request, db *store.DB, newStatus string, h *hub.Hub) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -420,6 +465,12 @@ func handleDraftAction(w http.ResponseWriter, r *http.Request, db *store.DB, new
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if h != nil {
+		h.InboxChanged()
+		if newStatus == "approved" {
+			pushPendingForUser(r.Context(), db, h)
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -442,7 +493,7 @@ type setAutoModeReq struct {
 	AutoMode bool `json:"auto_mode"`
 }
 
-func handleSetAutoMode(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+func handleSetAutoMode(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
 	var req setAutoModeReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -457,6 +508,9 @@ func handleSetAutoMode(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 	if err := db.SetAutoMode(ctx, user.ID, req.AutoMode); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if h != nil {
+		h.SettingsChanged()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "auto_mode": req.AutoMode})
 }
