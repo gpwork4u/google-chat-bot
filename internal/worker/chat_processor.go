@@ -547,6 +547,10 @@ func (p *ChatProcessor) ingestMessage(ctx context.Context, pm parser.ParsedMessa
 		settings = &store.UserSettings{UserID: p.userID}
 	}
 
+	if settings.ReplyOnlyWhenMentioned && !mentionsUser(pm.Body, p.userName) {
+		return 1, 0
+	}
+
 	draft := &store.Draft{
 		MessageID: msg.ID,
 		Body:      "[stub draft] 收到「" + truncate(pm.Body, 40) + "」",
@@ -587,6 +591,21 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
+}
+
+// mentionsUser returns true when body contains a literal "@<userName>"
+// mention. Google Chat renders @-mentions as the raw display name in the
+// message body (see DB samples), so a case-insensitive substring match is
+// enough — no need to parse annotation structures.
+//
+// Empty user name → always false, which keeps drafting off when we don't
+// know who "me" is (safer default for a reply-only-when-mentioned gate).
+func mentionsUser(body, userName string) bool {
+	userName = strings.TrimSpace(userName)
+	if userName == "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(body), "@"+strings.ToLower(userName))
 }
 
 func hasUsableLocalUserName(name string) bool {

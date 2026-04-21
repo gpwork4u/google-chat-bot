@@ -53,6 +53,9 @@ func extensionRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hu
 	mux.HandleFunc("POST /api/settings/auto-mode", func(w http.ResponseWriter, r *http.Request) {
 		handleSetAutoMode(w, r, db, cfg, h)
 	})
+	mux.HandleFunc("POST /api/settings/mention-only", func(w http.ResponseWriter, r *http.Request) {
+		handleSetMentionOnly(w, r, db, cfg, h)
+	})
 
 	mux.HandleFunc("GET /api/drafts/pending", func(w http.ResponseWriter, r *http.Request) {
 		handlePendingDrafts(w, r, db, cfg)
@@ -491,6 +494,32 @@ func handleGetSettings(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 
 type setAutoModeReq struct {
 	AutoMode bool `json:"auto_mode"`
+}
+
+type setMentionOnlyReq struct {
+	MentionOnly bool `json:"mention_only"`
+}
+
+func handleSetMentionOnly(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
+	var req setMentionOnlyReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ctx := r.Context()
+	user, err := requireLocalUser(ctx, db, cfg)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if err := db.SetReplyOnlyWhenMentioned(ctx, user.ID, req.MentionOnly); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if h != nil {
+		h.SettingsChanged()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "mention_only": req.MentionOnly})
 }
 
 func handleSetAutoMode(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
