@@ -433,13 +433,13 @@ func handleMessageContext(w http.ResponseWriter, r *http.Request, db *store.DB, 
 	}
 	window := 30 * time.Minute
 	if s := r.URL.Query().Get("window_minutes"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 24*60 {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 7*24*60 {
 			window = time.Duration(n) * time.Minute
 		}
 	}
 	limit := 20
 	if s := r.URL.Query().Get("limit"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 100 {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 500 {
 			limit = n
 		}
 	}
