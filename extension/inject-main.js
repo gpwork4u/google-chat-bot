@@ -7,10 +7,12 @@
 
 (function () {
   const URL_FILTERS = [
-    /\/webchannel\//,   // BrowserChannel long poll — new messages stream here
-    /\/api\//,          // misc REST
+    /\/webchannel\//,            // BrowserChannel long poll — new messages stream here
+    /\/api\//,                   // misc REST
     /messages/i,
     /chat\.google\.com/,
+    /\/DynamiteWebUi\/data\//,   // batchexecute RPCs (browse spaces etc.)
+    /\/batchexecute/,            // catch absolute-path variants too
   ];
   const MAX_BODY = 50000;
   const CREATE_TOPIC_PATH = /\/api\/create_topic(?:\?|$)/;
