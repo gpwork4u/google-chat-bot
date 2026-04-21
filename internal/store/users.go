@@ -78,6 +78,37 @@ func (db *DB) getUser(ctx context.Context, where string, args ...any) (*User, er
 	return &u, nil
 }
 
+// SetChatUserID records the user's numeric Google Chat id on the local
+// user row so later code can JOIN to chat_members and discover the real
+// email / display_name without any .env configuration.
+func (db *DB) SetChatUserID(ctx context.Context, userID int64, chatUserID string) error {
+	if chatUserID == "" {
+		return nil
+	}
+	_, err := db.Exec(ctx,
+		`UPDATE users SET chat_user_id = $2, updated_at = NOW()
+         WHERE id = $1 AND (chat_user_id IS NULL OR chat_user_id = '' OR chat_user_id <> $2)`,
+		userID, chatUserID)
+	return err
+}
+
+// LookupSelfIdentity walks users → chat_members on chat_user_id to find
+// the email / display_name the authenticated Chat session reports for
+// this local user. Returns empty strings (no error) when the mapping
+// isn't set up yet.
+func (db *DB) LookupSelfIdentity(ctx context.Context, userID int64) (email, name, chatUserID string, err error) {
+	const q = `
+SELECT COALESCE(u.chat_user_id, ''),
+       COALESCE(cm.email, ''),
+       COALESCE(cm.display_name, '')
+FROM users u
+LEFT JOIN chat_members cm
+  ON cm.user_id = u.id AND cm.member_id = u.chat_user_id
+WHERE u.id = $1`
+	err = db.QueryRow(ctx, q, userID).Scan(&chatUserID, &email, &name)
+	return
+}
+
 // UpdateUserAccessToken persists a refreshed access token back to the DB.
 // The caller passes already-encrypted ciphertext.
 func (db *DB) UpdateUserAccessToken(ctx context.Context, userID int64, encAccess []byte, expiry *time.Time) error {

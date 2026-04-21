@@ -356,6 +356,19 @@ func (p *ChatProcessor) Ingest(ctx context.Context, kind, url string, payload js
 			p.hub.InboxChanged()
 		}
 
+	case strings.Contains(url, "get_user_settings"):
+		if id, _ := parser.ParseGetUserSettings(respText); id != "" {
+			prev, _, _, _ := p.db.LookupSelfIdentity(ctx, p.userID)
+			if err := p.db.SetChatUserID(ctx, p.userID, id); err != nil {
+				slog.Warn("set chat user id", "err", err)
+			}
+			// First time we've learned self identity — if the startup
+			// sender-search couldn't fire (no ldap), kick it now.
+			if prev == "" && senderSearchCount == 0 {
+				p.requestInitialSenderSearch(ctx)
+			}
+		}
+
 	case strings.Contains(url, "list_members"):
 		profiles, err := parser.ParseListMembersProfiles(respText)
 		if err != nil {
@@ -375,6 +388,12 @@ func (p *ChatProcessor) Ingest(ctx context.Context, kind, url string, payload js
 			if p.hub != nil {
 				// sender names may have changed for existing messages
 				p.hub.InboxChanged()
+			}
+			// Self's email only becomes discoverable once a list_members
+			// response that includes the profile block has been parsed.
+			// Kick sender-search now if it hadn't started yet.
+			if senderSearchCount == 0 {
+				p.requestInitialSenderSearch(ctx)
 			}
 		}
 	}
@@ -496,6 +515,30 @@ func ldapFromEmail(email string) string {
 	return local
 }
 
+// resolveSelfLdap picks the best source of the current user's ldap, in
+// priority order:
+//   1. users.chat_user_id → chat_members.email (fully auto-discovered)
+//   2. users.email (set by OAuth or EnsureLocalUser from cfg)
+//   3. LOCAL_USER_EMAIL env var (cached on p.userEmail at startup)
+// Empty return means: don't know yet — caller should skip, and the
+// get_user_settings ingest path will re-fire sender-search later.
+func (p *ChatProcessor) resolveSelfLdap(ctx context.Context) string {
+	if p.userID > 0 {
+		email, _, _, err := p.db.LookupSelfIdentity(ctx, p.userID)
+		if err == nil && email != "" {
+			if l := ldapFromEmail(email); l != "" {
+				return l
+			}
+		}
+	}
+	if u, err := p.db.GetUserByID(ctx, p.userID); err == nil && u != nil {
+		if l := ldapFromEmail(u.Email); l != "" {
+			return l
+		}
+	}
+	return ldapFromEmail(p.userEmail)
+}
+
 // requestInitialSenderSearch kicks off the style-corpus pull by asking
 // any connected extension to fire the first SBNmJb page. Each subsequent
 // page is driven from ingestBatchExecuteSenderSearch once the previous
@@ -504,14 +547,12 @@ func (p *ChatProcessor) requestInitialSenderSearch(ctx context.Context) {
 	if p.hub == nil {
 		return
 	}
-	ldap := ldapFromEmail(p.userEmail)
+	ldap := p.resolveSelfLdap(ctx)
 	if ldap == "" {
-		slog.Info("sender-search: no ldap derivable from local user, skipping")
+		slog.Info("sender-search: ldap unknown yet (waiting for get_user_settings ingest)")
 		return
 	}
 	slog.Info("sender-search: requesting first page", "ldap", ldap)
-	// Add 1 day so the first page isn't blocked by clock skew on just-
-	// sent messages.
 	before := time.Now().Add(24 * time.Hour).UnixMilli()
 	p.hub.RequestSenderSearch(ldap, before, 97)
 }
