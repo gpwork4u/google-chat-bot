@@ -12,9 +12,16 @@ type UIEvent struct {
 
 // ExtEvent is delivered to extension WebSocket clients.
 type ExtEvent struct {
-	Type     string   `json:"type"`                // "pending" | "refresh_spaces"
+	Type     string   `json:"type"`                // "pending" | "refresh_spaces" | "batchexecute_sender_search"
 	Pending  any      `json:"pending,omitempty"`   // approved draft row (same shape as /api/ext/pending)
 	SpaceIDs []string `json:"space_ids,omitempty"` // for refresh_spaces: raw space ids to look up via get_group
+
+	// batchexecute_sender_search: tells the extension to call Chat's
+	// SBNmJb RPC from the browser (where cookies are valid) so the
+	// response flows back through the normal XHR hook → raw path.
+	Ldap     string `json:"ldap,omitempty"`
+	BeforeMs int64  `json:"before_ms,omitempty"`
+	PageSize int    `json:"page_size,omitempty"`
 }
 
 type Hub struct {
@@ -94,4 +101,16 @@ func (h *Hub) RefreshSpaces(spaceIDs []string) {
 		return
 	}
 	h.PublishExt(ExtEvent{Type: "refresh_spaces", SpaceIDs: spaceIDs})
+}
+
+func (h *Hub) RequestSenderSearch(ldap string, beforeMs int64, pageSize int) {
+	if ldap == "" {
+		return
+	}
+	h.PublishExt(ExtEvent{
+		Type:     "batchexecute_sender_search",
+		Ldap:     ldap,
+		BeforeMs: beforeMs,
+		PageSize: pageSize,
+	})
 }

@@ -519,8 +519,97 @@
       } catch (e) {
         emitDebug('main_fetch_space_failed', { space_id: data.space_id, error: String(e?.message || e) });
       }
+      return;
+    }
+    if (data.type === 'batchexecute-sender-search' && data.ldap) {
+      try {
+        await sendBatchExecuteSenderSearch(data.ldap, Number(data.before_ms) || Date.now(), Number(data.page_size) || 97);
+      } catch (e) {
+        emitDebug('main_batchexecute_failed', { ldap: data.ldap, error: String(e?.message || e) });
+      }
     }
   });
+
+  // Google's boq framework parks session state on window.WIZ_global_data.
+  // Chat's DynamiteWebUi app uses the same plumbing; the keys are short
+  // identifiers shared across all boq apps:
+  //   SNlM0e  = 'at' token   (XSRF for batchexecute form body)
+  //   FdrFJe  = 'f.sid'      (session id for batchexecute URL)
+  //   cfb2h   = 'bl'         (build label for batchexecute URL)
+  //
+  // If the keys ever rotate, fall back to scanning DOM inline scripts for
+  // the assignment pattern.
+  function readBoqParams() {
+    const w = window.WIZ_global_data || window['WIZ_global_data'] || {};
+    const out = {
+      at: w.SNlM0e || w['SNlM0e'] || '',
+      fsid: w.FdrFJe || w['FdrFJe'] || '',
+      bl: w.cfb2h || w['cfb2h'] || '',
+    };
+    if (out.at && out.fsid && out.bl) return out;
+    // Fallback: search every <script> for "WIZ_global_data" assignment.
+    try {
+      const scripts = document.querySelectorAll('script');
+      for (const s of scripts) {
+        const t = s.textContent || '';
+        if (!t.includes('WIZ_global_data')) continue;
+        const m = t.match(/WIZ_global_data\s*=\s*(\{[\s\S]*?\})\s*[;<]/);
+        if (!m) continue;
+        try {
+          const obj = JSON.parse(m[1]);
+          if (!out.at) out.at = obj.SNlM0e || '';
+          if (!out.fsid) out.fsid = obj.FdrFJe || '';
+          if (!out.bl) out.bl = obj.cfb2h || '';
+          if (out.at && out.fsid && out.bl) break;
+        } catch {}
+      }
+    } catch {}
+    return out;
+  }
+
+  async function sendBatchExecuteSenderSearch(ldap, beforeMs, pageSize) {
+    const { at, fsid, bl } = readBoqParams();
+    if (!at || !fsid || !bl) {
+      throw new Error(`missing boq params at=${!!at} fsid=${!!fsid} bl=${!!bl}`);
+    }
+    const uuid = (crypto.randomUUID && crypto.randomUUID().toUpperCase()) || randomTopicKey(36);
+    const innerReq = [
+      null, null, null, ldap, null, uuid,
+      [[], null, null, null, uuid, null, 0],
+      beforeMs, [3], [pageSize || 97],
+    ];
+    const fReq = JSON.stringify([[["SBNmJb", JSON.stringify(innerReq), null, "3"]]]);
+    const qs = new URLSearchParams({
+      rpcids: 'SBNmJb',
+      'source-path': '/u/0/app/search',
+      'f.sid': fsid,
+      bl,
+      hl: 'en',
+      _reqid: String(nextApiCounter() * 1000 + 300),
+      rt: 'c',
+    });
+    const url = `${state.accountBase}/_/DynamiteWebUi/data/batchexecute?${qs.toString()}`;
+    const formBody = `f.req=${encodeURIComponent(fReq)}&at=${encodeURIComponent(at)}&`;
+
+    emitDebug('main_send_batchexecute_search', { ldap, beforeMs, pageSize, url });
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded;charset=UTF-8');
+      xhr.setRequestHeader('X-Same-Domain', '1');
+      xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          // Response bytes flow back to the backend automatically through
+          // the existing XHR hook (URL matches /batchexecute/ filter).
+          resolve();
+        } else {
+          reject(new Error(`batchexecute ${xhr.status}: ${truncate(String(xhr.responseText || ''))}`));
+        }
+      };
+      xhr.onerror = function () { reject(new Error('batchexecute network error')); };
+      xhr.send(formBody);
+    });
+  }
 
   function waitForRequestHeaders(timeoutMs = 30000) {
     if (state.requestHeaders?.['x-framework-xsrf-token']) return Promise.resolve();
