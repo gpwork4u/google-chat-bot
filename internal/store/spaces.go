@@ -14,14 +14,20 @@ type SpaceRow struct {
 	LastMessageAt *time.Time `json:"last_message_at"`
 }
 
-// ListSpaces enumerates every space we've ever observed a message in, with
-// its current settings and usage stats.
+// recentSpacesWindow bounds the UI's Channel 設定 list to "anything we've
+// seen activity in lately" — the full history gets noisy fast.
+const recentSpacesWindow = "14 days"
+
+// ListSpaces returns spaces that have received at least one message within
+// recentSpacesWindow, along with their current settings. Drafting defaults
+// to OFF for spaces the user has never explicitly enabled, so the disabled
+// column coalesces to TRUE.
 func (db *DB) ListSpaces(ctx context.Context, userID int64) ([]SpaceRow, error) {
-	const q = `
+	q := `
 SELECT
   m.space_key,
   MAX(m.space_name) AS space_name,
-  COALESCE(s.disabled, FALSE) AS disabled,
+  COALESCE(s.disabled, TRUE) AS disabled,
   s.auto_mode,
   count(*) AS message_count,
   MAX(m.observed_at) AS last_at
@@ -29,6 +35,7 @@ FROM messages m
 LEFT JOIN space_settings s
   ON s.user_id = m.user_id AND s.space_key = m.space_key
 WHERE m.user_id = $1
+  AND m.observed_at >= NOW() - INTERVAL '` + recentSpacesWindow + `'
 GROUP BY m.space_key, s.disabled, s.auto_mode
 ORDER BY last_at DESC NULLS LAST`
 	rows, err := db.Query(ctx, q, userID)
@@ -96,15 +103,17 @@ ON CONFLICT (user_id, space_key) DO UPDATE SET disabled = EXCLUDED.disabled, upd
 }
 
 // IsSpaceDisabled returns whether drafting should be skipped for this space.
+// Default is disabled: the user must explicitly enable a space in the UI
+// before we start generating drafts for it.
 func (db *DB) IsSpaceDisabled(ctx context.Context, userID int64, spaceKey string) (bool, error) {
 	var disabled bool
 	err := db.QueryRow(ctx,
-		`SELECT COALESCE(disabled, FALSE) FROM space_settings WHERE user_id=$1 AND space_key=$2`,
+		`SELECT disabled FROM space_settings WHERE user_id=$1 AND space_key=$2`,
 		userID, spaceKey,
 	).Scan(&disabled)
 	if err != nil {
-		// No row = not disabled (default enabled).
-		return false, nil
+		// No row = default disabled (opt-in).
+		return true, nil
 	}
 	return disabled, nil
 }
