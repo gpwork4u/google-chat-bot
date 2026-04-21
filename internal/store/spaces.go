@@ -1,0 +1,95 @@
+package store
+
+import (
+	"context"
+	"time"
+)
+
+type SpaceRow struct {
+	SpaceKey      string     `json:"space_key"`
+	SpaceName     string     `json:"space_name"`
+	Disabled      bool       `json:"disabled"`
+	AutoModeOverride *bool   `json:"auto_mode_override"` // nil = inherit user_settings
+	MessageCount  int        `json:"message_count"`
+	LastMessageAt *time.Time `json:"last_message_at"`
+}
+
+// ListSpaces enumerates every space we've ever observed a message in, with
+// its current settings and usage stats.
+func (db *DB) ListSpaces(ctx context.Context, userID int64) ([]SpaceRow, error) {
+	const q = `
+SELECT
+  m.space_key,
+  MAX(m.space_name) AS space_name,
+  COALESCE(s.disabled, FALSE) AS disabled,
+  s.auto_mode,
+  count(*) AS message_count,
+  MAX(m.observed_at) AS last_at
+FROM messages m
+LEFT JOIN space_settings s
+  ON s.user_id = m.user_id AND s.space_key = m.space_key
+WHERE m.user_id = $1
+GROUP BY m.space_key, s.disabled, s.auto_mode
+ORDER BY last_at DESC NULLS LAST`
+	rows, err := db.Query(ctx, q, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SpaceRow
+	for rows.Next() {
+		var r SpaceRow
+		if err := rows.Scan(&r.SpaceKey, &r.SpaceName, &r.Disabled, &r.AutoModeOverride, &r.MessageCount, &r.LastMessageAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// UpsertSpaceDisabled toggles the disabled flag for a space.
+func (db *DB) UpsertSpaceDisabled(ctx context.Context, userID int64, spaceKey string, disabled bool) error {
+	const q = `
+INSERT INTO space_settings (user_id, space_key, disabled) VALUES ($1, $2, $3)
+ON CONFLICT (user_id, space_key) DO UPDATE SET disabled = EXCLUDED.disabled, updated_at = NOW()`
+	_, err := db.Exec(ctx, q, userID, spaceKey, disabled)
+	return err
+}
+
+// IsSpaceDisabled returns whether drafting should be skipped for this space.
+func (db *DB) IsSpaceDisabled(ctx context.Context, userID int64, spaceKey string) (bool, error) {
+	var disabled bool
+	err := db.QueryRow(ctx,
+		`SELECT COALESCE(disabled, FALSE) FROM space_settings WHERE user_id=$1 AND space_key=$2`,
+		userID, spaceKey,
+	).Scan(&disabled)
+	if err != nil {
+		// No row = not disabled (default enabled).
+		return false, nil
+	}
+	return disabled, nil
+}
+
+// WasRecentlySentDraft returns true when the given message body matches a draft
+// we already sent to the same space around the same observation time. This is
+// used to recognize our own messages and avoid reply loops.
+func (db *DB) WasRecentlySentDraft(ctx context.Context, userID int64, spaceKey, body string, observedAt time.Time) (bool, error) {
+	const q = `
+SELECT EXISTS (
+  SELECT 1
+  FROM drafts d
+  JOIN messages m ON m.id = d.message_id
+  WHERE m.user_id = $1
+    AND m.space_key = $2
+    AND d.status = 'sent'
+    AND d.body = $3
+    AND d.sent_at IS NOT NULL
+    AND d.sent_at >= $4 - INTERVAL '1 hour'
+    AND d.sent_at <= $4 + INTERVAL '5 minutes'
+)`
+	var ok bool
+	if err := db.QueryRow(ctx, q, userID, spaceKey, body, observedAt).Scan(&ok); err != nil {
+		return false, err
+	}
+	return ok, nil
+}

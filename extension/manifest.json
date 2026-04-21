@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Google Chat AI Agent (local)",
+  "version": "0.2.0",
+  "description": "攔截 Google Chat 網路封包,由 Claude 生成 draft,由 extension 代為送出。後端跑在 localhost:8080。",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Chat AI Agent"
+  },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://chat.google.com/*",
+    "https://mail.google.com/*",
+    "http://localhost:8080/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["inject-main.js"],
+      "matches": [
+        "https://chat.google.com/*",
+        "https://mail.google.com/*"
+      ]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chat.google.com/*",
+        "https://mail.google.com/chat/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}

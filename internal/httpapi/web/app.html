@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>Chat AI Agent — 收件匣</title>
+<style>
+  :root { --fg: #202124; --muted: #5f6368; --bg: #fff; --border: #dadce0; --hl: #1a73e8;
+          --ok: #137333; --warn: #b06000; --err: #c5221f; --chip: #e8f0fe; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif;
+         color: var(--fg); background: #f8f9fa; margin: 0; }
+  header { background: white; border-bottom: 1px solid var(--border); padding: 12px 20px;
+           display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 10; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .spacer { flex: 1; }
+  main { max-width: 900px; margin: 20px auto; padding: 0 20px; }
+  .msg { background: white; border: 1px solid var(--border); border-radius: 8px;
+         padding: 14px 16px; margin-bottom: 12px; }
+  .msg .meta { color: var(--muted); font-size: 12px; margin-bottom: 6px; display: flex; gap: 8px; }
+  .msg .sender { font-weight: 600; color: var(--fg); }
+  .msg .body { white-space: pre-wrap; word-break: break-word; }
+  .draft { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+  .draft .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .draft textarea { width: 100%; min-height: 60px; padding: 8px; border: 1px solid var(--border);
+                    border-radius: 4px; font-family: inherit; font-size: 14px; resize: vertical; margin-top: 4px; }
+  .draft .actions { margin-top: 8px; display: flex; gap: 8px; }
+  .draft .controls { margin-top: 8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  button { font: inherit; padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border);
+           background: white; color: var(--fg); cursor: pointer; }
+  select { font: inherit; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); background: white; color: var(--fg); }
+  button.primary { background: var(--hl); color: white; border-color: var(--hl); }
+  button.danger { color: var(--err); border-color: var(--err); }
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 12px; background: var(--chip);
+          color: var(--hl); font-size: 11px; }
+  .chip.ok { background: #e6f4ea; color: var(--ok); }
+  .chip.warn { background: #fef7e0; color: var(--warn); }
+  .chip.err { background: #fce8e6; color: var(--err); }
+  .switch { position: relative; display: inline-block; width: 38px; height: 22px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+    background: #ccc; border-radius: 22px; transition: .2s; }
+  .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px;
+    background: white; border-radius: 50%; transition: .2s; }
+  input:checked + .slider { background: var(--hl); }
+  input:checked + .slider:before { transform: translateX(16px); }
+  .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Chat AI Agent</h1>
+  <div class="spacer"></div>
+  <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+    自動回覆
+    <span class="switch"><input type="checkbox" id="auto-toggle"><span class="slider"></span></span>
+  </label>
+  <span id="status" class="chip">…</span>
+</header>
+<main>
+  <details style="background:white;border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+    <summary style="cursor:pointer;font-weight:600;font-size:14px;">Channel 設定 <span id="space-counter" style="color:var(--muted);font-weight:400;"></span></summary>
+    <div id="space-list" style="margin-top:10px;"></div>
+  </details>
+  <div id="list"></div>
+  <div id="empty" class="empty" style="display:none">還沒有收到任何訊息。裝好 extension 後到 Google Chat 對話看看。</div>
+</main>
+
+<script>
+const API = '';
+const listEl = document.getElementById('list');
+const emptyEl = document.getElementById('empty');
+const autoEl = document.getElementById('auto-toggle');
+const statusEl = document.getElementById('status');
+
+function fmtTime(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString('zh-TW', { hour12: false });
+}
+
+function statusChip(status) {
+  const map = {
+    pending:  ['chip warn', '等待核准'],
+    approved: ['chip', '已核准，等送出'],
+    sent:     ['chip ok', '已送出'],
+    rejected: ['chip', '已拒絕'],
+    failed:   ['chip err', '送出失敗'],
+  };
+  const [cls, text] = map[status] || ['chip', status];
+  return `<span class="${cls}">${text}</span>`;
+}
+
+function escape(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function displaySpaceName(space) {
+  const name = String(space?.space_name ?? '').trim();
+  if (name) return name;
+  const key = String(space?.space_key ?? '').trim();
+  if (!key) return '(未命名 channel / 舊資料)';
+  return '(未命名 channel)';
+}
+
+async function loadSettings() {
+  const r = await fetch(`${API}/api/settings`);
+  if (r.status === 401) {
+    statusEl.className = 'chip err';
+    statusEl.innerText = '未授權';
+    return;
+  }
+  const s = await r.json();
+  autoEl.checked = !!s.AutoMode;
+  statusEl.className = 'chip ok';
+  statusEl.innerText = s.AutoMode ? '自動模式 ON' : 'Draft 模式';
+}
+
+async function loadInbox() {
+  try {
+    const r = await fetch(`${API}/api/inbox?limit=50`);
+    if (!r.ok) return;
+    const { items } = await r.json();
+    if (!items || items.length === 0) {
+      listEl.innerHTML = '';
+      emptyEl.style.display = 'block';
+      return;
+    }
+    emptyEl.style.display = 'none';
+    listEl.innerHTML = items.map(renderItem).join('');
+    bindDraftActions();
+  } catch (e) { console.error(e); }
+}
+
+function renderItem(item) {
+  const m = item.Message, d = item.Draft;
+  const sender = m.SenderIsMe ? '你' : (m.SenderName || '(未命名)');
+  let draftHtml = '';
+  if (d) {
+    const showApprove = d.Status === 'pending';
+    const sendMode = d.SendMode || 'new_topic';
+    draftHtml = `
+      <div class="draft" data-draft-id="${d.ID}">
+        <div class="label">AI draft ${statusChip(d.Status)}</div>
+        <textarea ${d.Status === 'sent' || d.Status === 'rejected' ? 'readonly' : ''}>${escape(d.Body)}</textarea>
+        ${d.Error ? `<div style="color:var(--err);font-size:12px;margin-top:4px;">${escape(d.Error)}</div>` : ''}
+        ${showApprove ? `
+        <div class="controls">
+          <label style="font-size:12px;color:var(--muted);">送出方式</label>
+          <select class="send-mode">
+            <option value="new_topic" ${sendMode === 'new_topic' ? 'selected' : ''}>開新 topic</option>
+            <option value="reply_thread" ${sendMode === 'reply_thread' ? 'selected' : ''}>回原串</option>
+          </select>
+        </div>` : ''}
+        <div class="actions">
+          ${showApprove ? `<button class="primary act-approve" data-id="${d.ID}">核准 + 送出</button>` : ''}
+          ${showApprove ? `<button class="danger act-reject" data-id="${d.ID}">拒絕</button>` : ''}
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="msg">
+      <div class="meta">
+        <span class="sender">${escape(sender)}</span>
+        <span>· ${escape(m.SpaceName || m.SpaceKey)}</span>
+        <span>· ${fmtTime(m.ObservedAt)}</span>
+      </div>
+      <div class="body">${escape(m.Body)}</div>
+      ${draftHtml}
+    </div>`;
+}
+
+function bindDraftActions() {
+  document.querySelectorAll('.act-approve').forEach(b => b.addEventListener('click', async () => {
+    const id = b.dataset.id;
+    const draftEl = b.closest('.draft');
+    const sendMode = draftEl.querySelector('.send-mode')?.value || 'new_topic';
+    // TODO(phase3): PATCH edited body before approve
+    await fetch(`${API}/api/drafts/${id}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ send_mode: sendMode }),
+    });
+    loadInbox();
+  }));
+  document.querySelectorAll('.act-reject').forEach(b => b.addEventListener('click', async () => {
+    const id = b.dataset.id;
+    await fetch(`${API}/api/drafts/${id}/reject`, { method: 'POST' });
+    loadInbox();
+  }));
+}
+
+autoEl.addEventListener('change', async () => {
+  await fetch(`${API}/api/settings/auto-mode`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auto_mode: autoEl.checked }),
+  });
+  loadSettings();
+});
+
+async function loadSpaces() {
+  try {
+    const r = await fetch(`${API}/api/spaces`);
+    if (!r.ok) return;
+    const { spaces } = await r.json();
+    const counter = document.getElementById('space-counter');
+    const enabled = (spaces || []).filter(s => !s.disabled).length;
+    counter.innerText = `(啟用 ${enabled}/${(spaces || []).length})`;
+    const host = document.getElementById('space-list');
+    if (!spaces || spaces.length === 0) {
+      host.innerHTML = '<div class="empty" style="padding:8px 0;">目前沒有攔截到任何 channel。到 Chat 滑一下對話就會出現。</div>';
+      return;
+    }
+    host.innerHTML = spaces.map(s => `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+        <label class="switch" style="flex:none;">
+          <input type="checkbox" ${s.disabled ? '' : 'checked'} data-key="${escape(s.space_key)}">
+          <span class="slider"></span>
+        </label>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escape(displaySpaceName(s))}</div>
+          <div style="color:var(--muted);font-size:11px;">${s.message_count} 則訊息 · 最後活動 ${s.last_message_at ? fmtTime(s.last_message_at) : '—'}</div>
+        </div>
+        <span class="chip ${s.disabled ? '' : 'ok'}" style="flex:none;">${s.disabled ? '略過' : '啟用中'}</span>
+      </div>
+    `).join('');
+    host.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        await fetch(`${API}/api/spaces/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ space_key: cb.dataset.key, disabled: !cb.checked }),
+        });
+        loadSpaces();
+      });
+    });
+  } catch (e) { console.error(e); }
+}
+
+loadSettings();
+loadInbox();
+loadSpaces();
+setInterval(loadInbox, 4000);
+setInterval(loadSpaces, 30000);
+</script>
+</body>
+</html>
