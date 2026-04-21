@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>Chat AI Agent</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; width: 280px; padding: 12px; margin: 0; }
+  h1 { font-size: 14px; margin: 0 0 10px; color: #202124; }
+  .row { display: flex; align-items: center; justify-content: space-between; margin: 8px 0; font-size: 13px; }
+  .status { padding: 6px 8px; border-radius: 4px; font-size: 12px; margin: 8px 0; }
+  .status.ok { background: #e6f4ea; color: #137333; }
+  .status.err { background: #fce8e6; color: #c5221f; }
+  button { font-size: 13px; padding: 4px 10px; cursor: pointer; }
+  .link { color: #1a73e8; text-decoration: none; font-size: 13px; }
+  .link:hover { text-decoration: underline; }
+  label { font-size: 13px; }
+  .switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+    background: #ccc; border-radius: 20px; transition: .2s; }
+  .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px;
+    background: white; border-radius: 50%; transition: .2s; }
+  input:checked + .slider { background: #1a73e8; }
+  input:checked + .slider:before { transform: translateX(16px); }
+</style>
+</head>
+<body>
+<h1>Google Chat AI Agent</h1>
+<div id="status" class="status">檢查中…</div>
+<div class="row">
+  <label for="auto">自動回覆模式</label>
+  <label class="switch"><input type="checkbox" id="auto"><span class="slider"></span></label>
+</div>
+<div class="row">
+  <a class="link" href="http://localhost:8080/app" target="_blank">開啟收件匣</a>
+  <a class="link" href="http://localhost:8080/healthz" target="_blank">後端狀態</a>
+</div>
+<script src="popup.js"></script>
+</body>
+</html>
