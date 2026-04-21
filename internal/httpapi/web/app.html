@@ -135,6 +135,7 @@ async function loadInbox() {
     emptyEl.style.display = 'none';
     listEl.innerHTML = items.map(renderItem).join('');
     bindDraftActions();
+    bindContextToggles();
   } catch (e) { console.error(e); }
 }
 
@@ -165,15 +166,80 @@ function renderItem(item) {
       </div>`;
   }
   return `
-    <div class="msg">
+    <div class="msg" data-msg-id="${m.ID}">
       <div class="meta">
         <span class="sender">${escape(sender)}</span>
         <span>· ${escape(m.SpaceName || m.SpaceKey)}</span>
         <span>· ${fmtTime(m.ObservedAt)}</span>
+        <span style="margin-left:auto;"></span>
+        <button class="ctx-toggle" data-id="${m.ID}" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:0 4px;">上下文 ▸</button>
       </div>
       <div class="body">${escape(m.Body)}</div>
+      <div class="ctx-box" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);"></div>
       ${draftHtml}
     </div>`;
+}
+
+function renderContextLine(msg, isAnchor) {
+  const sender = msg.SenderIsMe ? '你' : (msg.SenderName || '(未命名)');
+  const bg = isAnchor ? 'background:#fff8e1;' : '';
+  return `
+    <div style="padding:6px 8px;margin:2px 0;border-radius:4px;${bg}">
+      <div style="font-size:11px;color:var(--muted);">
+        <span style="font-weight:600;color:var(--fg);">${escape(sender)}</span>
+        · ${fmtTime(msg.ObservedAt)}
+        ${msg.ThreadKey ? `<span style="margin-left:6px;color:var(--muted);">thread ${escape(String(msg.ThreadKey).slice(0,8))}</span>` : ''}
+      </div>
+      <div style="font-size:13px;white-space:pre-wrap;word-break:break-word;">${escape(msg.Body)}</div>
+    </div>`;
+}
+
+async function loadContext(msgID, box, button) {
+  box.innerHTML = '<div class="empty" style="padding:8px;">載入中…</div>';
+  try {
+    const r = await fetch(`${API}/api/messages/${msgID}/context?window_minutes=30&limit=20`);
+    if (!r.ok) { box.innerHTML = '<div class="empty" style="padding:8px;color:var(--err);">載入失敗</div>'; return; }
+    const bundle = await r.json();
+    const anchorID = bundle.anchor ? bundle.anchor.ID : 0;
+    const threadHtml = (bundle.thread || []).length
+      ? (bundle.thread || []).map(m => renderContextLine(m, m.ID === anchorID)).join('')
+      : '<div class="empty" style="padding:4px 0;">這則沒有 thread 紀錄</div>';
+    const aroundHtml = (bundle.around || []).length
+      ? (bundle.around || []).map(m => renderContextLine(m, false)).join('')
+      : '<div class="empty" style="padding:4px 0;">同 space 附近時間沒有其他 topic 訊息</div>';
+    box.innerHTML = `
+      <div class="label" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Thread 討論</div>
+      ${threadHtml}
+      <div class="label" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin:10px 0 4px;">同 space 其他 topic（±30 分鐘）</div>
+      ${aroundHtml}`;
+    button.innerText = '上下文 ▾';
+  } catch (e) {
+    box.innerHTML = `<div class="empty" style="padding:8px;color:var(--err);">錯誤：${escape(String(e))}</div>`;
+  }
+}
+
+function bindContextToggles() {
+  document.querySelectorAll('.ctx-toggle').forEach(btn => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => {
+      const msgEl = btn.closest('.msg');
+      const box = msgEl.querySelector('.ctx-box');
+      const id = btn.dataset.id;
+      if (box.style.display === 'none') {
+        box.style.display = 'block';
+        if (!box.dataset.loaded) {
+          box.dataset.loaded = '1';
+          loadContext(id, box, btn);
+        } else {
+          btn.innerText = '上下文 ▾';
+        }
+      } else {
+        box.style.display = 'none';
+        btn.innerText = '上下文 ▸';
+      }
+    });
+  });
 }
 
 function bindDraftActions() {

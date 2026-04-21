@@ -40,6 +40,9 @@ func extensionRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hu
 	mux.HandleFunc("GET /api/inbox", func(w http.ResponseWriter, r *http.Request) {
 		handleInbox(w, r, db, cfg)
 	})
+	mux.HandleFunc("GET /api/messages/{id}/context", func(w http.ResponseWriter, r *http.Request) {
+		handleMessageContext(w, r, db, cfg)
+	})
 	mux.HandleFunc("POST /api/drafts/{id}/approve", func(w http.ResponseWriter, r *http.Request) {
 		handleDraftAction(w, r, db, "approved", h)
 	})
@@ -413,6 +416,43 @@ func handleExtSent(w http.ResponseWriter, r *http.Request, db *store.DB, h *hub.
 		h.InboxChanged()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func handleMessageContext(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	ctx := r.Context()
+	user, err := requireLocalUser(ctx, db, cfg)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	window := 30 * time.Minute
+	if s := r.URL.Query().Get("window_minutes"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 24*60 {
+			window = time.Duration(n) * time.Minute
+		}
+	}
+	limit := 20
+	if s := r.URL.Query().Get("limit"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+	ctxBundle, err := db.MessageContext(ctx, user.ID, id, window, limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if ctxBundle == nil {
+		writeErr(w, http.StatusNotFound, "message not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, ctxBundle)
 }
 
 func handleInbox(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {

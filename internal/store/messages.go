@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -107,6 +109,109 @@ LIMIT $2`
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+// ContextBundle is the conversation around a single message: the full
+// thread it belongs to, plus nearby messages in the same space that live
+// in other threads (useful when a Chat channel interleaves several topics
+// and you want to see what else was happening when this one landed).
+type ContextBundle struct {
+	Anchor *Message   `json:"anchor"`
+	Thread []Message  `json:"thread"`
+	Around []Message  `json:"around"`
+}
+
+// MessageContext returns the bundle described above for the given message
+// id. aroundWindow bounds how far before/after the anchor we'll pull from
+// other threads in the same space; aroundLimit caps how many "around" rows
+// we return (anchor-adjacent rows are preferred via symmetric ordering).
+func (db *DB) MessageContext(ctx context.Context, userID, messageID int64, aroundWindow time.Duration, aroundLimit int) (*ContextBundle, error) {
+	anchor, err := db.GetMessage(ctx, userID, messageID)
+	if err != nil || anchor == nil {
+		return nil, err
+	}
+
+	out := &ContextBundle{Anchor: anchor}
+
+	// Thread view: every message with the same thread_key. When thread_key
+	// is empty we have no way to group reliably, so we just return the
+	// anchor alone.
+	if anchor.ThreadKey != "" {
+		const qThread = `
+SELECT id, user_id, space_key, space_name, thread_key, message_key,
+       sender_name, sender_is_me, body, observed_at, created_at
+FROM messages
+WHERE user_id = $1 AND space_key = $2 AND thread_key = $3
+ORDER BY observed_at ASC`
+		rows, err := db.Query(ctx, qThread, userID, anchor.SpaceKey, anchor.ThreadKey)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var m Message
+			if err := rows.Scan(&m.ID, &m.UserID, &m.SpaceKey, &m.SpaceName, &m.ThreadKey, &m.MessageKey,
+				&m.SenderName, &m.SenderIsMe, &m.Body, &m.ObservedAt, &m.CreatedAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out.Thread = append(out.Thread, m)
+		}
+		rows.Close()
+	} else {
+		out.Thread = []Message{*anchor}
+	}
+
+	// Around view: same space, different thread, within ±aroundWindow of
+	// the anchor. Ordered by closeness to the anchor (smallest absolute
+	// delta first) and limited, then re-sorted by time for display.
+	if aroundLimit <= 0 {
+		aroundLimit = 20
+	}
+	const qAround = `
+SELECT id, user_id, space_key, space_name, thread_key, message_key,
+       sender_name, sender_is_me, body, observed_at, created_at
+FROM messages
+WHERE user_id = $1 AND space_key = $2
+  AND COALESCE(thread_key, '') <> COALESCE($3, '')
+  AND observed_at BETWEEN $4 - $5::interval AND $4 + $5::interval
+ORDER BY ABS(EXTRACT(EPOCH FROM (observed_at - $4)))
+LIMIT $6`
+	interval := fmt.Sprintf("%d seconds", int(aroundWindow.Seconds()))
+	rows, err := db.Query(ctx, qAround, userID, anchor.SpaceKey, anchor.ThreadKey, anchor.ObservedAt, interval, aroundLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var m Message
+		if err := rows.Scan(&m.ID, &m.UserID, &m.SpaceKey, &m.SpaceName, &m.ThreadKey, &m.MessageKey,
+			&m.SenderName, &m.SenderIsMe, &m.Body, &m.ObservedAt, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		out.Around = append(out.Around, m)
+	}
+	// Re-sort around by time ascending for display.
+	sort.Slice(out.Around, func(i, j int) bool {
+		return out.Around[i].ObservedAt.Before(out.Around[j].ObservedAt)
+	})
+	return out, nil
+}
+
+// GetMessage fetches one message by id, scoped to the local user.
+func (db *DB) GetMessage(ctx context.Context, userID, messageID int64) (*Message, error) {
+	const q = `
+SELECT id, user_id, space_key, space_name, thread_key, message_key,
+       sender_name, sender_is_me, body, observed_at, created_at
+FROM messages WHERE id = $1 AND user_id = $2`
+	var m Message
+	err := db.QueryRow(ctx, q, messageID, userID).Scan(
+		&m.ID, &m.UserID, &m.SpaceKey, &m.SpaceName, &m.ThreadKey, &m.MessageKey,
+		&m.SenderName, &m.SenderIsMe, &m.Body, &m.ObservedAt, &m.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return &m, err
 }
 
 func (db *DB) InsertDraft(ctx context.Context, d *Draft) error {
