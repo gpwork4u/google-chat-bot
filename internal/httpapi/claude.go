@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ailabs-tw/google-chat-bot/internal/config"
 	"github.com/ailabs-tw/google-chat-bot/internal/hub"
@@ -18,9 +19,9 @@ import (
 // The filter is *not* parameterized on this API surface — the same knobs the
 // user sets in the UI (Channel 設定 whitelist, 只回 @ 我) drive what shows
 // up here. The agent only consumes.
-func claudeRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.Hub) {
+func claudeRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.Hub, ing Ingestor) {
 	mux.HandleFunc("GET /api/claude/pending", func(w http.ResponseWriter, r *http.Request) {
-		handleClaudePending(w, r, db, cfg)
+		handleClaudePending(w, r, db, cfg, ing)
 	})
 	mux.HandleFunc("POST /api/claude/reply", func(w http.ResponseWriter, r *http.Request) {
 		handleClaudeReply(w, r, db, cfg, h)
@@ -30,7 +31,7 @@ func claudeRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.H
 	})
 }
 
-func handleClaudePending(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+func handleClaudePending(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, ing Ingestor) {
 	ctx := r.Context()
 	user, err := requireLocalUser(ctx, db, cfg)
 	if err != nil {
@@ -47,7 +48,11 @@ func handleClaudePending(w http.ResponseWriter, r *http.Request, db *store.DB, c
 	if s := strings.ToLower(r.URL.Query().Get("debug")); s == "1" || s == "true" || s == "yes" {
 		debug = true
 	}
-	pending, err := db.ListClaudePending(ctx, user.ID, limit, debug)
+	var since time.Time
+	if ing != nil {
+		since = ing.SessionStart()
+	}
+	pending, err := db.ListClaudePending(ctx, user.ID, since, limit, debug)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

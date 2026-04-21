@@ -20,11 +20,19 @@ type SpaceRow struct {
 // wouldn't have been stored anyway.
 const recentSpacesWindow = "30 minutes"
 
-// ListSpaces returns spaces that have received at least one message within
-// recentSpacesWindow, along with their current settings. Drafting defaults
-// to OFF for spaces the user has never explicitly enabled, so the disabled
-// column coalesces to TRUE.
-func (db *DB) ListSpaces(ctx context.Context, userID int64) ([]SpaceRow, error) {
+// ListSpaces returns spaces that have received at least one message since
+// the later of (sessionStart, now - recentSpacesWindow), along with their
+// current settings. Drafting defaults to OFF for spaces the user has
+// never explicitly enabled, so the disabled column coalesces to TRUE.
+//
+// Passing sessionStart=zero falls back to the window-only behavior.
+func (db *DB) ListSpaces(ctx context.Context, userID int64, sessionStart time.Time) ([]SpaceRow, error) {
+	args := []any{userID}
+	floorExpr := `NOW() - INTERVAL '` + recentSpacesWindow + `'`
+	if !sessionStart.IsZero() {
+		args = append(args, sessionStart)
+		floorExpr = `GREATEST($2::timestamptz, NOW() - INTERVAL '` + recentSpacesWindow + `')`
+	}
 	q := `
 SELECT
   m.space_key,
@@ -40,10 +48,10 @@ LEFT JOIN spaces_directory dir
   ON dir.user_id = m.user_id AND dir.space_key = m.space_key
 WHERE m.user_id = $1
   AND m.space_key <> ''
-  AND m.observed_at >= NOW() - INTERVAL '` + recentSpacesWindow + `'
+  AND m.observed_at >= ` + floorExpr + `
 GROUP BY m.space_key, s.disabled, s.auto_mode, dir.display_name
 ORDER BY last_at DESC NULLS LAST`
-	rows, err := db.Query(ctx, q, userID)
+	rows, err := db.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

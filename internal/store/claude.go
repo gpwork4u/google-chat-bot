@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -145,7 +146,7 @@ type ClaudePending struct {
 // own Chat session without needing a second account.
 //
 // Returned in time-descending order (newest first); cap with limit.
-func (db *DB) ListClaudePending(ctx context.Context, userID int64, limit int, debug bool) ([]ClaudePending, error) {
+func (db *DB) ListClaudePending(ctx context.Context, userID int64, since time.Time, limit int, debug bool) ([]ClaudePending, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -161,7 +162,14 @@ func (db *DB) ListClaudePending(ctx context.Context, userID int64, limit int, de
 		selfFilter = ""
 		mentionFilter = ""
 	}
-	q := `
+	sinceFilter := ""
+	args := []any{userID, limit}
+	if !since.IsZero() {
+		sinceFilter = `
+  AND m.observed_at >= $3::timestamptz`
+		args = append(args, since)
+	}
+	q := fmt.Sprintf(`
 SELECT
   m.id, m.space_key, m.space_name, m.thread_key, m.message_key,
   m.sender_name, m.body, m.observed_at,
@@ -180,10 +188,10 @@ LEFT JOIN users u
   ON u.id = m.user_id
 WHERE m.user_id = $1
   AND d.id IS NULL
-  AND COALESCE(s.disabled, TRUE) = FALSE` + selfFilter + mentionFilter + `
+  AND COALESCE(s.disabled, TRUE) = FALSE%s%s%s
 ORDER BY m.observed_at DESC
-LIMIT $2`
-	rows, err := db.Query(ctx, q, userID, limit)
+LIMIT $2`, selfFilter, mentionFilter, sinceFilter)
+	rows, err := db.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

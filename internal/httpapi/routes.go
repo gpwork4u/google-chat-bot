@@ -15,7 +15,7 @@ func NewRouter(cfg *config.Config, db *store.DB, oauthSvc *oauth.Service, h *hub
 	mux := http.NewServeMux()
 	extensionRoutes(mux, db, cfg, h, ing)
 	wsRoutes(mux, db, cfg, h, ing)
-	claudeRoutes(mux, db, cfg, h)
+	claudeRoutes(mux, db, cfg, h, ing)
 	debugRoutes(mux, db, cfg, h)
 	webRoutes(mux)
 

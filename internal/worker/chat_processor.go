@@ -40,6 +40,17 @@ func isFresh(t time.Time) bool {
 	return time.Since(t) <= freshnessWindow
 }
 
+// isAfterSessionStart reports whether t was observed after this server
+// process started. Combined with isFresh, it means a long-running
+// server won't accumulate stale messages beyond the freshness window,
+// and a just-started server won't ingest anything from before it booted.
+func (p *ChatProcessor) isAfterSessionStart(t time.Time) bool {
+	if t.IsZero() {
+		return true
+	}
+	return !t.Before(p.sessionStart)
+}
+
 type ChatProcessor struct {
 	db              *store.DB
 	hub             *hub.Hub
@@ -49,16 +60,24 @@ type ChatProcessor struct {
 	userName        string
 	userID          int64
 	chatSessionFile string
+	sessionStart    time.Time // messages observed before this are not ingested
 }
+
+// SessionStart returns when this processor instance began accepting
+// messages. httpapi uses it as a floor for /api/claude/pending and
+// /api/spaces so the UI and skill only see activity from the current
+// server session.
+func (p *ChatProcessor) SessionStart() time.Time { return p.sessionStart }
 
 const defaultLocalUserName = "Local Extension User"
 
 func NewChatProcessor(db *store.DB, h *hub.Hub, localUserEmail, localUserName string) *ChatProcessor {
 	return &ChatProcessor{
-		db:        db,
-		hub:       h,
-		userEmail: strings.ToLower(localUserEmail),
-		userName:  localUserName,
+		db:           db,
+		hub:          h,
+		userEmail:    strings.ToLower(localUserEmail),
+		userName:     localUserName,
+		sessionStart: time.Now(),
 	}
 }
 
