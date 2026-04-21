@@ -52,6 +52,9 @@ func (p *ChatProcessor) Run(ctx context.Context) {
 	if err := p.backfillSpaceNames(ctx); err != nil {
 		slog.Warn("space-name backfill failed", "err", err)
 	}
+	if err := p.backfillMembers(ctx); err != nil {
+		slog.Warn("members backfill failed", "err", err)
+	}
 
 	// Start from 0 and let InsertOrGetMessage dedupe by message_key. This way
 	// historical responses already in raw_events get backfilled on first run.
@@ -85,6 +88,47 @@ func (p *ChatProcessor) ensureUser(ctx context.Context) error {
 		}
 		p.userID = u.ID
 	}
+	return nil
+}
+
+// backfillMembers scans every list_topics response already in raw_events and
+// upserts every sender we can find into chat_members. Called once on startup
+// so webchannel push frames (which carry only sender_id) can be enriched
+// with display_name / email going forward.
+func (p *ChatProcessor) backfillMembers(ctx context.Context) error {
+	var lastID int64
+	var seen, upserted int
+	for {
+		rows, err := p.db.RawEventsSince(ctx, lastID, "%list_topics%", batchSize)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		for _, row := range rows {
+			if row.ID > lastID {
+				lastID = row.ID
+			}
+			parsed, err := parser.ParseListTopicsResponse(row.RespText)
+			if err != nil {
+				continue
+			}
+			for _, m := range parsed {
+				seen++
+				if m.SenderID == "" {
+					continue
+				}
+				if err := p.db.UpsertChatMember(ctx, p.userID, m.SenderID, m.SenderName, m.SenderEmail); err != nil {
+					slog.Warn("upsert chat member", "err", err, "member", m.SenderID)
+					continue
+				}
+				upserted++
+			}
+		}
+	}
+	count, _ := p.db.CountChatMembers(ctx, p.userID)
+	slog.Info("members backfill completed", "scanned_messages", seen, "upserts", upserted, "directory_size", count)
 	return nil
 }
 
@@ -323,6 +367,25 @@ func (p *ChatProcessor) broadcastPending(ctx context.Context) {
 // when it's both new and from someone other than the authed user.
 // Returns (messagesInserted, draftsCreated) — 0 or 1 each.
 func (p *ChatProcessor) ingestMessage(ctx context.Context, pm parser.ParsedMessage) (int, int) {
+	// Enrich pm with sender info from the directory if the caller left it
+	// blank (happens for webchannel push frames which only carry sender_id).
+	if pm.SenderName == "" || pm.SenderEmail == "" {
+		if m, err := p.db.LookupChatMember(ctx, p.userID, pm.SenderID); err == nil && m != nil {
+			if pm.SenderName == "" {
+				pm.SenderName = m.DisplayName
+			}
+			if pm.SenderEmail == "" {
+				pm.SenderEmail = m.Email
+			}
+		}
+	}
+	// Conversely, if this message itself carries name/email (list_topics
+	// case), persist to the directory so later webchannel pushes for the
+	// same sender can use it.
+	if pm.SenderID != "" && (pm.SenderName != "" || pm.SenderEmail != "") {
+		_ = p.db.UpsertChatMember(ctx, p.userID, pm.SenderID, pm.SenderName, pm.SenderEmail)
+	}
+
 	senderIsMe := strings.EqualFold(pm.SenderEmail, p.userEmail)
 	if !senderIsMe && hasUsableLocalUserName(p.userName) {
 		senderIsMe = strings.EqualFold(strings.TrimSpace(pm.SenderName), strings.TrimSpace(p.userName))
