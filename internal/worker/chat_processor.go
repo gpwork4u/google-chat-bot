@@ -21,7 +21,24 @@ const (
 	batchSize     = 200
 	urlChatAPILK  = "%/api/%"
 	urlGetGroupLK = "%get_group%"
+
+	// freshnessWindow gates message inserts: anything older is dropped,
+	// regardless of source (webchannel push, list_topics backfill,
+	// batchexecute sender-search, HTTP fallback). Keeps the messages
+	// table focused on the active working set and prevents historical
+	// bulk imports from pushing noise into the pending queue.
+	freshnessWindow = 30 * time.Minute
 )
+
+// isFresh reports whether t is within freshnessWindow of now. Zero time
+// (unknown) passes so edge cases where we genuinely can't timestamp a
+// message don't silently get dropped.
+func isFresh(t time.Time) bool {
+	if t.IsZero() {
+		return true
+	}
+	return time.Since(t) <= freshnessWindow
+}
 
 type ChatProcessor struct {
 	db              *store.DB
@@ -577,6 +594,9 @@ func (p *ChatProcessor) ingestBatchExecuteSenderSearch(ctx context.Context, url,
 
 	inserted := 0
 	for _, m := range page.Messages {
+		if !isFresh(m.ObservedAt) {
+			continue
+		}
 		spaceName := m.SpaceKey
 		if known, _ := p.db.LookupSpaceName(ctx, p.userID, m.SpaceKey); known != "" {
 			spaceName = known
@@ -614,6 +634,14 @@ func (p *ChatProcessor) ingestBatchExecuteSenderSearch(ctx context.Context, url,
 		return
 	}
 	if page.OldestObserved.IsZero() {
+		return
+	}
+	// If even the newest message on this page already fell off the
+	// freshness window, the next (older) page can't possibly contain
+	// anything we'd insert. Stop paginating.
+	if !isFresh(page.NewestObserved) {
+		slog.Info("sender-search: page older than freshness window, stopping",
+			"newest", page.NewestObserved.Format(time.RFC3339))
 		return
 	}
 	ldap := page.LdapFilter
@@ -684,6 +712,9 @@ func (p *ChatProcessor) syncStyleCorpus(ctx context.Context, sessionPath string)
 			if m.MessageKey == "" || m.Body == "" {
 				continue
 			}
+			if !isFresh(m.ObservedAt) {
+				continue
+			}
 			spaceName := m.SpaceKey
 			if known, _ := p.db.LookupSpaceName(ctx, userID, m.SpaceKey); known != "" {
 				spaceName = known
@@ -723,6 +754,11 @@ func (p *ChatProcessor) syncStyleCorpus(ctx context.Context, sessionPath string)
 		if decoded.OldestObserved.IsZero() {
 			return
 		}
+		if !isFresh(decoded.NewestObserved) {
+			slog.Info("stylesync: page older than freshness window, stopping",
+				"newest", decoded.NewestObserved.Format(time.RFC3339))
+			return
+		}
 		nextBefore := decoded.OldestObserved.UnixMilli()
 		if nextBefore >= before {
 			// No progress → break to avoid an infinite loop.
@@ -754,6 +790,9 @@ func (p *ChatProcessor) broadcastPending(ctx context.Context) {
 // when it's both new and from someone other than the authed user.
 // Returns (messagesInserted, draftsCreated) — 0 or 1 each.
 func (p *ChatProcessor) ingestMessage(ctx context.Context, pm parser.ParsedMessage) (int, int) {
+	if !isFresh(pm.ObservedAt) {
+		return 0, 0
+	}
 	// Enrich pm with sender info from the directory if the caller left it
 	// blank (happens for webchannel push frames which only carry sender_id).
 	if pm.SenderName == "" || pm.SenderEmail == "" {
