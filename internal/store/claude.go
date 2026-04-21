@@ -132,19 +132,36 @@ type ClaudePending struct {
 
 // ListClaudePending returns the messages that match the user's current
 // answer-filtering preferences:
-//   - sender is not me
+//   - sender is not me (relaxed when debug=true)
 //   - no draft exists yet for the message
 //   - space_settings.disabled = FALSE (explicit whitelist — anything the
 //     user hasn't toggled on in the Channel 設定 list is excluded)
 //   - if user_settings.reply_only_when_mentioned is TRUE, the body must
-//     contain a literal "@<local user name>" substring (case-insensitive)
+//     contain a literal "@<local user name>" substring (case-insensitive,
+//     also relaxed when debug=true)
+//
+// debug=true includes messages sent by the local user and bypasses the
+// mention gate so you can end-to-end test the skill pipeline from your
+// own Chat session without needing a second account.
 //
 // Returned in time-descending order (newest first); cap with limit.
-func (db *DB) ListClaudePending(ctx context.Context, userID int64, limit int) ([]ClaudePending, error) {
+func (db *DB) ListClaudePending(ctx context.Context, userID int64, limit int, debug bool) ([]ClaudePending, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	const q = `
+	selfFilter := `
+  AND m.sender_is_me = FALSE
+  AND (COALESCE(u.name, '') = '' OR m.sender_name IS NULL OR m.sender_name = '' OR lower(m.sender_name) <> lower(u.name))`
+	mentionFilter := `
+  AND (
+    COALESCE(us.reply_only_when_mentioned, FALSE) = FALSE
+    OR (COALESCE(u.name, '') <> '' AND position(lower('@' || u.name) in lower(m.body)) > 0)
+  )`
+	if debug {
+		selfFilter = ""
+		mentionFilter = ""
+	}
+	q := `
 SELECT
   m.id, m.space_key, m.space_name, m.thread_key, m.message_key,
   m.sender_name, m.body, m.observed_at,
@@ -162,16 +179,8 @@ LEFT JOIN user_settings us
 LEFT JOIN users u
   ON u.id = m.user_id
 WHERE m.user_id = $1
-  AND m.sender_is_me = FALSE
-  -- belt-and-braces: historical rows may still be mis-flagged, so also
-  -- reject anything whose sender_name matches the local user's name.
-  AND (COALESCE(u.name, '') = '' OR m.sender_name IS NULL OR m.sender_name = '' OR lower(m.sender_name) <> lower(u.name))
   AND d.id IS NULL
-  AND COALESCE(s.disabled, TRUE) = FALSE
-  AND (
-    COALESCE(us.reply_only_when_mentioned, FALSE) = FALSE
-    OR (COALESCE(u.name, '') <> '' AND position(lower('@' || u.name) in lower(m.body)) > 0)
-  )
+  AND COALESCE(s.disabled, TRUE) = FALSE` + selfFilter + mentionFilter + `
 ORDER BY m.observed_at DESC
 LIMIT $2`
 	rows, err := db.Query(ctx, q, userID, limit)

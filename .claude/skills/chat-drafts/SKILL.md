@@ -58,6 +58,12 @@ curl -s "http://localhost:8080/api/claude/style-profile?space_key=<anchor_space_
 curl -s http://localhost:8080/api/claude/pending?limit=50
 ```
 
+**Debug mode**：加 `?debug=true`（或 `debug=1`）時 backend 會放寬條件：
+- 不過濾 `sender_is_me`（自己發的訊息也會列出來）
+- 不套用 「只回 @ 我」的 mention 檢查
+
+這只在你自己測 pipeline 時開，不然正式 run 用預設值就好。
+
 Response：
 
 ```json
@@ -166,20 +172,21 @@ curl -s -X POST http://localhost:8080/api/claude/reply \
     "message_id": 123,
     "body": "ok 我看一下，大概下午給你答覆",
     "send_mode": "reply_thread",
-    "auto_send": <AUTO_SEND>,
     "model": "claude-code",
     "reasoning": "why this reply"
   }'
 ```
 
-`<AUTO_SEND>` 判斷：
+**skill 不需要判斷要不要自動送出** — backend 根據使用者當前 `auto_mode` 設定自己決定：
 
-- 若第 1 步拿到的 `auto_mode=true` → `auto_send=true`（直接送出 Chat）
-- 若 `auto_mode=false` → `auto_send=false`（draft 留在 UI 等使用者按「核准 + 送出」）
+- `auto_mode=true` → draft 直接 `status=approved`，extension 送出
+- `auto_mode=false` → draft `status=pending`，UI 等使用者核准
 
-`send_mode` 預設用 `"reply_thread"`（保持在原 thread 裡對話）。只有在明顯應該開新話題時才用 `"new_topic"`。
+重複 POST 同一個 `message_id` 會**更新**現有 pending/approved draft（body 覆蓋過去），不會重複堆疊。使用者若想換你換過的內容，先到 UI reject 再 re-run skill。
 
-成功 response：`{"ok": true, "draft_id": 456, "status": "approved"}`
+`send_mode` 預設 `"reply_thread"`（保持在原 thread）。只有明顯應該開新話題才用 `"new_topic"`。
+
+成功 response：`{"ok": true, "draft_id": 456, "status": "approved", "auto_sent": true}` — 看 `auto_sent` 知道 backend 最終是直接送了還是放 pending。
 
 ### 6. 每則輸出一行 log
 
