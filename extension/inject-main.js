@@ -35,6 +35,12 @@
     lastObservedCreateTopicSpaceRef: null,
   };
 
+  // Resolvers waiting for the SPA to send its first authenticated /api/
+  // request so we can learn x-framework-xsrf-token. Used by sendGetGroup
+  // (and any other helpers we add later) to avoid firing a request before
+  // we have valid headers.
+  const requestHeadersReady = [];
+
   function matchesFilter(url) {
     if (!url) return false;
     return URL_FILTERS.some((re) => re.test(url));
@@ -207,10 +213,16 @@
 
     const headers = headersObj || {};
     if (/\/api\//.test(String(url)) && headers['x-framework-xsrf-token']) {
+      const firstTime = !state.requestHeaders?.['x-framework-xsrf-token'];
       state.requestHeaders = {
         'accept-language': headers['accept-language'] || navigator.language || 'en',
         'x-framework-xsrf-token': headers['x-framework-xsrf-token'],
       };
+      if (firstTime && requestHeadersReady.length) {
+        const rs = requestHeadersReady.slice();
+        requestHeadersReady.length = 0;
+        for (const r of rs) r();
+      }
     }
 
     if (CREATE_TOPIC_PATH.test(url)) {
@@ -495,10 +507,68 @@
   window.addEventListener('message', async (ev) => {
     if (ev.source !== window) return;
     const data = ev.data || {};
-    if (data.source !== 'chat-agent-content' || data.type !== 'send-request') return;
-    emitDebug('main_postmessage_received', { draftId: data.detail?.draftId });
-    await handleSendRequest(data.detail || {});
+    if (data.source !== 'chat-agent-content') return;
+    if (data.type === 'send-request') {
+      emitDebug('main_postmessage_received', { draftId: data.detail?.draftId });
+      await handleSendRequest(data.detail || {});
+      return;
+    }
+    if (data.type === 'fetch-space' && typeof data.space_id === 'string' && data.space_id) {
+      try {
+        await sendGetGroup(data.space_id);
+      } catch (e) {
+        emitDebug('main_fetch_space_failed', { space_id: data.space_id, error: String(e?.message || e) });
+      }
+    }
   });
+
+  function waitForRequestHeaders(timeoutMs = 30000) {
+    if (state.requestHeaders?.['x-framework-xsrf-token']) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => {
+        const i = requestHeadersReady.indexOf(resolve);
+        if (i >= 0) requestHeadersReady.splice(i, 1);
+        reject(new Error('state.requestHeaders not populated within timeout'));
+      }, timeoutMs);
+      requestHeadersReady.push(() => { clearTimeout(t); resolve(); });
+    });
+  }
+
+  async function sendGetGroup(spaceId) {
+    await waitForRequestHeaders();
+    const url = `${state.accountBase}/api/get_group?c=${nextApiCounter()}`;
+    const body = new Array(100).fill(null);
+    body[0] = [[spaceId]];
+    body[3] = [5, 9, 8, 7, 1, 4];
+    body[4] = 1;
+    body[99] = buildFooter();
+
+    emitDebug('main_send_get_group', { url, spaceId });
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      if (state.requestHeaders?.['accept-language']) {
+        xhr.setRequestHeader('Accept-Language', state.requestHeaders['accept-language']);
+      }
+      if (state.requestHeaders?.['x-framework-xsrf-token']) {
+        xhr.setRequestHeader('X-Framework-Xsrf-Token', state.requestHeaders['x-framework-xsrf-token']);
+      }
+      xhr.setRequestHeader('X-Goog-Chat-Space-Id', spaceId);
+      xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          // The XHR hook installed on XMLHttpRequest.prototype.send will have
+          // already emitted an 'xhr' event with respText, so the backend's
+          // get_group parser runs as a side effect. Nothing else to do here.
+          resolve();
+        } else {
+          reject(new Error(`get_group ${xhr.status}: ${truncate(String(xhr.responseText || ''))}`));
+        }
+      };
+      xhr.onerror = function () { reject(new Error('get_group network error')); };
+      xhr.send(JSON.stringify(body));
+    });
+  }
 
   // --- fetch --------------------------------------------------------------
   const _fetch = window.fetch;

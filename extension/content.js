@@ -111,6 +111,17 @@ function onServerMessage(ev) {
   }
   if (msg.type === 'pending' && msg.pending) {
     dispatchSendRequest(msg.pending);
+    return;
+  }
+  if (msg.type === 'refresh_spaces' && Array.isArray(msg.space_ids)) {
+    for (const sid of msg.space_ids) {
+      if (!sid) continue;
+      window.postMessage({
+        source: 'chat-agent-content',
+        type: 'fetch-space',
+        space_id: sid,
+      }, '*');
+    }
   }
 }
 
