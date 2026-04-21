@@ -50,6 +50,10 @@
 <header>
   <h1>Chat AI Agent</h1>
   <div class="spacer"></div>
+  <label style="display:flex;align-items:center;gap:8px;font-size:13px;" title="只有 @ 提到我的訊息才會產生 draft">
+    只回 @ 我
+    <span class="switch"><input type="checkbox" id="mention-toggle"><span class="slider"></span></span>
+  </label>
   <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
     自動回覆
     <span class="switch"><input type="checkbox" id="auto-toggle"><span class="slider"></span></span>
@@ -70,6 +74,7 @@ const API = '';
 const listEl = document.getElementById('list');
 const emptyEl = document.getElementById('empty');
 const autoEl = document.getElementById('auto-toggle');
+const mentionEl = document.getElementById('mention-toggle');
 const statusEl = document.getElementById('status');
 
 function fmtTime(iso) {
@@ -110,8 +115,11 @@ async function loadSettings() {
   }
   const s = await r.json();
   autoEl.checked = !!s.AutoMode;
+  mentionEl.checked = !!s.ReplyOnlyWhenMentioned;
   statusEl.className = 'chip ok';
-  statusEl.innerText = s.AutoMode ? '自動模式 ON' : 'Draft 模式';
+  let label = s.AutoMode ? '自動模式 ON' : 'Draft 模式';
+  if (s.ReplyOnlyWhenMentioned) label += ' · 只回 @';
+  statusEl.innerText = label;
 }
 
 async function loadInbox() {
@@ -193,6 +201,15 @@ autoEl.addEventListener('change', async () => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ auto_mode: autoEl.checked }),
+  });
+  loadSettings();
+});
+
+mentionEl.addEventListener('change', async () => {
+  await fetch(`${API}/api/settings/mention-only`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mention_only: mentionEl.checked }),
   });
   loadSettings();
 });

@@ -221,15 +221,16 @@ func (db *DB) GetDraft(ctx context.Context, id int64) (*Draft, error) {
 // --- settings ---
 
 type UserSettings struct {
-	UserID          int64
-	AutoMode        bool
-	BlockedKeywords string
+	UserID                 int64
+	AutoMode               bool
+	BlockedKeywords        string
+	ReplyOnlyWhenMentioned bool
 }
 
 func (db *DB) GetUserSettings(ctx context.Context, userID int64) (*UserSettings, error) {
-	const q = `SELECT user_id, auto_mode, blocked_keywords FROM user_settings WHERE user_id=$1`
+	const q = `SELECT user_id, auto_mode, blocked_keywords, reply_only_when_mentioned FROM user_settings WHERE user_id=$1`
 	var s UserSettings
-	err := db.QueryRow(ctx, q, userID).Scan(&s.UserID, &s.AutoMode, &s.BlockedKeywords)
+	err := db.QueryRow(ctx, q, userID).Scan(&s.UserID, &s.AutoMode, &s.BlockedKeywords, &s.ReplyOnlyWhenMentioned)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Create a default row.
 		_, err := db.Exec(ctx, `INSERT INTO user_settings(user_id) VALUES ($1) ON CONFLICT DO NOTHING`, userID)
@@ -245,6 +246,14 @@ func (db *DB) SetAutoMode(ctx context.Context, userID int64, on bool) error {
 	const q = `
 INSERT INTO user_settings (user_id, auto_mode) VALUES ($1, $2)
 ON CONFLICT (user_id) DO UPDATE SET auto_mode = EXCLUDED.auto_mode, updated_at = NOW()`
+	_, err := db.Exec(ctx, q, userID, on)
+	return err
+}
+
+func (db *DB) SetReplyOnlyWhenMentioned(ctx context.Context, userID int64, on bool) error {
+	const q = `
+INSERT INTO user_settings (user_id, reply_only_when_mentioned) VALUES ($1, $2)
+ON CONFLICT (user_id) DO UPDATE SET reply_only_when_mentioned = EXCLUDED.reply_only_when_mentioned, updated_at = NOW()`
 	_, err := db.Exec(ctx, q, userID, on)
 	return err
 }
