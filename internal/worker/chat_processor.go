@@ -67,6 +67,7 @@ func (p *ChatProcessor) Run(ctx context.Context) {
 	if p.chatSessionFile != "" {
 		go p.syncStyleCorpus(ctx, p.chatSessionFile)
 	}
+	p.requestInitialSenderSearch(ctx)
 
 	// Start from 0 and let InsertOrGetMessage dedupe by message_key. This way
 	// historical responses already in raw_events get backfilled on first run.
@@ -349,6 +350,12 @@ func (p *ChatProcessor) Ingest(ctx context.Context, kind, url string, payload js
 			}
 		}
 
+	case strings.Contains(url, "batchexecute") && strings.Contains(url, "SBNmJb"):
+		p.ingestBatchExecuteSenderSearch(ctx, url, respText)
+		if p.hub != nil {
+			p.hub.InboxChanged()
+		}
+
 	case strings.Contains(url, "list_members"):
 		profiles, err := parser.ParseListMembersProfiles(respText)
 		if err != nil {
@@ -464,6 +471,114 @@ func (p *ChatProcessor) RequestSpaceNameRefresh(ctx context.Context) {
 		return
 	}
 	p.requestSpaceNameRefresh(ctx)
+}
+
+// extensionSenderSearchCap bounds the ongoing "keep paging backwards" sync
+// started by requestInitialSenderSearch + continued on each SBNmJb ingest.
+const extensionSenderSearchCap = 10000
+
+// ldapFromEmail extracts the ldap login (first dot-separated segment of
+// the email local part). "chunping.wang@ailabs.tw" → "chunping". Returns
+// "" when there's nothing plausibly local.
+func ldapFromEmail(email string) string {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" || strings.HasPrefix(email, "local-extension-user@") {
+		return ""
+	}
+	at := strings.IndexByte(email, '@')
+	if at <= 0 {
+		return ""
+	}
+	local := email[:at]
+	if i := strings.IndexByte(local, '.'); i > 0 {
+		return local[:i]
+	}
+	return local
+}
+
+// requestInitialSenderSearch kicks off the style-corpus pull by asking
+// any connected extension to fire the first SBNmJb page. Each subsequent
+// page is driven from ingestBatchExecuteSenderSearch once the previous
+// response lands.
+func (p *ChatProcessor) requestInitialSenderSearch(ctx context.Context) {
+	if p.hub == nil {
+		return
+	}
+	ldap := ldapFromEmail(p.userEmail)
+	if ldap == "" {
+		slog.Info("sender-search: no ldap derivable from local user, skipping")
+		return
+	}
+	slog.Info("sender-search: requesting first page", "ldap", ldap)
+	// Add 1 day so the first page isn't blocked by clock skew on just-
+	// sent messages.
+	before := time.Now().Add(24 * time.Hour).UnixMilli()
+	p.hub.RequestSenderSearch(ldap, before, 97)
+}
+
+// senderSearchCount tracks how many SBNmJb results we've ingested this
+// process lifetime. Guarded by p.mu.
+var senderSearchCount int
+
+// ingestBatchExecuteSenderSearch parses a batchexecute SBNmJb response
+// forwarded through the XHR raw path and, if we're still below the cap
+// and the page wasn't empty, asks the extension to fetch the next page.
+func (p *ChatProcessor) ingestBatchExecuteSenderSearch(ctx context.Context, url, respText string) {
+	page, err := parser.ParseBatchExecuteSBNmJb([]byte(respText))
+	if err != nil {
+		slog.Warn("sender-search: parse failed", "err", err, "bytes", len(respText))
+		return
+	}
+	if page == nil || len(page.Messages) == 0 {
+		slog.Info("sender-search: end of history", "fetched_total", senderSearchCount)
+		return
+	}
+
+	inserted := 0
+	for _, m := range page.Messages {
+		msg := &store.Message{
+			UserID:     p.userID,
+			SpaceKey:   m.SpaceKey,
+			SpaceName:  m.SpaceKey,
+			MessageKey: m.MessageKey,
+			SenderName: p.userName,
+			SenderIsMe: true,
+			Body:       m.Body,
+			ObservedAt: m.ObservedAt,
+		}
+		newRow, err := p.db.InsertOrGetMessage(ctx, msg)
+		if err != nil {
+			slog.Warn("sender-search: insert", "err", err, "msg", m.MessageKey)
+			continue
+		}
+		if newRow {
+			inserted++
+		}
+		_ = p.db.MarkMessageAsMine(ctx, p.userID, m.MessageKey)
+	}
+	senderSearchCount += len(page.Messages)
+	slog.Info("sender-search: page ingested",
+		"fetched", len(page.Messages),
+		"inserted", inserted,
+		"total", senderSearchCount,
+		"oldest", page.OldestObserved.Format(time.RFC3339),
+	)
+
+	if senderSearchCount >= extensionSenderSearchCap {
+		slog.Info("sender-search: cap reached", "total", senderSearchCount)
+		return
+	}
+	if page.OldestObserved.IsZero() {
+		return
+	}
+	ldap := page.LdapFilter
+	if ldap == "" {
+		ldap = ldapFromEmail(p.userEmail)
+	}
+	if ldap == "" || p.hub == nil {
+		return
+	}
+	p.hub.RequestSenderSearch(ldap, page.OldestObserved.UnixMilli()-1, 97)
 }
 
 // syncStyleCorpus paginates backwards through the user's own messages via

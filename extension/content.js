@@ -122,6 +122,16 @@ function onServerMessage(ev) {
         space_id: sid,
       }, '*');
     }
+    return;
+  }
+  if (msg.type === 'batchexecute_sender_search' && msg.ldap) {
+    window.postMessage({
+      source: 'chat-agent-content',
+      type: 'batchexecute-sender-search',
+      ldap: msg.ldap,
+      before_ms: msg.before_ms,
+      page_size: msg.page_size,
+    }, '*');
   }
 }
 
