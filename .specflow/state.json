@@ -1,0 +1,14 @@
+{
+  "epic": "https://github.com/gpwork4u/google-chat-bot/issues/1",
+  "current_sprint": {
+    "number": 1,
+    "issue": "https://github.com/gpwork4u/google-chat-bot/issues/2",
+    "milestone": "Sprint 1: UI 框架 + Approval Queue"
+  },
+  "phase": "phase-2-tech-survey",
+  "last_action": null,
+  "next_action": "Sprint 1 等待 tech-lead 接手",
+  "in_flight_agents": [],
+  "open_questions": [],
+  "updated_at": "2026-05-04T13:30:54Z"
+}
