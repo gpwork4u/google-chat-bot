@@ -5,7 +5,9 @@ tmp/
 bin/
 .DS_Store
 node_modules/
-web/dist/
+# Vite build 產物（由 make web-build 產生，不入版控）
+# 注意：internal/httpapi/web/dist/ 的 .gitkeep 和 placeholder index.html 需入版控
+internal/httpapi/web/dist/assets/
 session.json
 chat_session.json
 .claude/scheduled_tasks.lock
