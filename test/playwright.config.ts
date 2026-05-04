@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 import { defineBddConfig, cucumberReporter } from 'playwright-bdd';
 
 const testDir = defineBddConfig({
@@ -18,6 +18,12 @@ export default defineConfig({
     video: 'retain-on-failure',
     headless: true,
   },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
   reporter: [
     ['list'],
     ['html', { outputFolder: './reports/html', open: 'never' }],
