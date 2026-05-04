@@ -1,0 +1,134 @@
+/*
+ * Design Tokens — Colors
+ * 用法：複製 @theme {} 區塊直接貼入 web/src/index.css
+ *
+ * 風格定位：internal tool，clean / dense，類 Linear / Superhuman
+ * 基調：深色 surface（slate 系），accent 用 indigo，減少裝飾色
+ *
+ * Tailwind v4 @theme — 所有 --color-* 變數自動產生 bg-*/text-*/border-* utilities
+ */
+
+@theme {
+  /* ── Neutrals（主要 UI 骨架） ─────────────────────────── */
+  --color-neutral-0:   oklch(1.00 0.000 0);       /* #ffffff — 純白 */
+  --color-neutral-50:  oklch(0.98 0.003 264);      /* #f8f9fa — 超淺 bg */
+  --color-neutral-100: oklch(0.95 0.006 264);      /* #f1f3f5 — surface subtle */
+  --color-neutral-200: oklch(0.90 0.009 264);      /* #e2e8f0 — border default */
+  --color-neutral-300: oklch(0.82 0.013 264);      /* #cbd5e1 — border strong */
+  --color-neutral-400: oklch(0.70 0.018 264);      /* #94a3b8 — text placeholder */
+  --color-neutral-500: oklch(0.56 0.022 264);      /* #64748b — text muted */
+  --color-neutral-600: oklch(0.44 0.026 264);      /* #475569 — text secondary */
+  --color-neutral-700: oklch(0.35 0.028 264);      /* #334155 — text primary */
+  --color-neutral-800: oklch(0.27 0.025 264);      /* #1e293b — surface dark */
+  --color-neutral-900: oklch(0.20 0.022 264);      /* #0f172a — surface darker */
+  --color-neutral-950: oklch(0.14 0.018 264);      /* #020617 — surface deepest */
+
+  /* ── Primary / Brand（Indigo） ───────────────────────── */
+  --color-primary-50:  oklch(0.96 0.018 264);
+  --color-primary-100: oklch(0.92 0.038 264);
+  --color-primary-200: oklch(0.85 0.070 264);
+  --color-primary-300: oklch(0.75 0.110 264);
+  --color-primary-400: oklch(0.65 0.155 264);
+  --color-primary-500: oklch(0.55 0.200 264);      /* 主 accent */
+  --color-primary-600: oklch(0.47 0.212 264);      /* hover 狀態 */
+  --color-primary-700: oklch(0.40 0.200 264);
+  --color-primary-800: oklch(0.33 0.175 264);
+  --color-primary-900: oklch(0.26 0.140 264);
+
+  /* ── Semantic — Surface（預設：淺色模式） ────────────── */
+  --color-surface-default:  var(--color-neutral-0);
+  --color-surface-subtle:   var(--color-neutral-50);
+  --color-surface-muted:    var(--color-neutral-100);
+  --color-surface-overlay:  oklch(0 0 0 / 0.40);   /* modal 背板 */
+
+  /* ── Semantic — Text ─────────────────────────────────── */
+  --color-text-default:     var(--color-neutral-900);
+  --color-text-secondary:   var(--color-neutral-600);
+  --color-text-muted:       var(--color-neutral-500);
+  --color-text-placeholder: var(--color-neutral-400);
+  --color-text-inverse:     var(--color-neutral-0);
+  --color-text-link:        var(--color-primary-600);
+
+  /* ── Semantic — Border ───────────────────────────────── */
+  --color-border-default:   var(--color-neutral-200);
+  --color-border-strong:    var(--color-neutral-300);
+  --color-border-focus:     var(--color-primary-500);
+
+  /* ── Semantic — Status ───────────────────────────────── */
+  --color-success-subtle:   oklch(0.96 0.050 145);
+  --color-success-default:  oklch(0.60 0.150 145);   /* 已連線 badge */
+  --color-success-strong:   oklch(0.45 0.160 145);
+
+  --color-warning-subtle:   oklch(0.97 0.060 85);
+  --color-warning-default:  oklch(0.75 0.170 85);    /* 重連中 badge */
+  --color-warning-strong:   oklch(0.55 0.160 85);
+
+  --color-error-subtle:     oklch(0.97 0.040 25);
+  --color-error-default:    oklch(0.60 0.200 25);    /* Reject 按鈕 */
+  --color-error-strong:     oklch(0.45 0.200 25);
+
+  --color-info-subtle:      oklch(0.96 0.030 220);
+  --color-info-default:     oklch(0.58 0.150 220);
+  --color-info-strong:      oklch(0.44 0.160 220);
+
+  /* ── Category Badge Colors ───────────────────────────── */
+  /* 四類對應 categorize.md：daily-chat / work-coordination / engineering / skip */
+  --color-category-chat-bg:      oklch(0.94 0.040 264);   /* indigo-50 tone */
+  --color-category-chat-text:    oklch(0.40 0.200 264);
+  --color-category-chat-border:  oklch(0.82 0.070 264);
+
+  --color-category-work-bg:      oklch(0.95 0.045 145);   /* teal-50 tone */
+  --color-category-work-text:    oklch(0.38 0.155 145);
+  --color-category-work-border:  oklch(0.80 0.080 145);
+
+  --color-category-eng-bg:       oklch(0.95 0.030 300);   /* purple-50 tone */
+  --color-category-eng-text:     oklch(0.38 0.180 300);
+  --color-category-eng-border:   oklch(0.78 0.090 300);
+
+  --color-category-skip-bg:      var(--color-neutral-100);
+  --color-category-skip-text:    var(--color-neutral-500);
+  --color-category-skip-border:  var(--color-neutral-200);
+}
+
+/*
+ * Dark Mode Overrides
+ * 使用方式：在 html 或 body 加上 .dark class，
+ * 或改用 [data-theme="dark"] — 跟 engineer 確認後統一。
+ */
+.dark {
+  --color-surface-default:  var(--color-neutral-900);
+  --color-surface-subtle:   var(--color-neutral-800);
+  --color-surface-muted:    oklch(0.23 0.022 264);    /* neutral-850 */
+
+  --color-text-default:     var(--color-neutral-50);
+  --color-text-secondary:   var(--color-neutral-300);
+  --color-text-muted:       var(--color-neutral-400);
+  --color-text-placeholder: var(--color-neutral-600);
+  --color-text-inverse:     var(--color-neutral-900);
+  --color-text-link:        var(--color-primary-300);
+
+  --color-border-default:   var(--color-neutral-700);
+  --color-border-strong:    var(--color-neutral-600);
+  --color-border-focus:     var(--color-primary-400);
+
+  --color-success-subtle:   oklch(0.22 0.060 145);
+  --color-warning-subtle:   oklch(0.22 0.060 85);
+  --color-error-subtle:     oklch(0.22 0.060 25);
+  --color-info-subtle:      oklch(0.22 0.040 220);
+
+  --color-category-chat-bg:      oklch(0.25 0.050 264);
+  --color-category-chat-text:    oklch(0.75 0.120 264);
+  --color-category-chat-border:  oklch(0.35 0.090 264);
+
+  --color-category-work-bg:      oklch(0.22 0.050 145);
+  --color-category-work-text:    oklch(0.72 0.110 145);
+  --color-category-work-border:  oklch(0.32 0.090 145);
+
+  --color-category-eng-bg:       oklch(0.22 0.040 300);
+  --color-category-eng-text:     oklch(0.72 0.120 300);
+  --color-category-eng-border:   oklch(0.32 0.090 300);
+
+  --color-category-skip-bg:      var(--color-neutral-800);
+  --color-category-skip-text:    var(--color-neutral-400);
+  --color-category-skip-border:  var(--color-neutral-700);
+}
