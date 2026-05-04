@@ -49,6 +49,51 @@ LIMIT $3`
 	return out, rows.Err()
 }
 
+// PeekRawEventRow is the shape returned by the debug peek endpoint — full
+// payload JSON so callers can reverse-engineer new RPC request/response
+// formats without needing psql.
+type PeekRawEventRow struct {
+	ID       int64           `json:"id"`
+	Kind     string          `json:"kind"`
+	URL      string          `json:"url"`
+	RespText string          `json:"resp_text"`
+	ReqBody  string          `json:"req_body,omitempty"`
+	Payload  json.RawMessage `json:"payload"`
+}
+
+// PeekRawEvents returns the newest raw_events matching urlLike (SQL LIKE
+// pattern), with payload JSON truncated field-by-field to maxBytes to
+// keep response size bounded. Used by /debug/raw_events.
+func (db *DB) PeekRawEvents(ctx context.Context, urlLike string, limit, maxBytes int) ([]PeekRawEventRow, error) {
+	if limit <= 0 {
+		limit = 3
+	}
+	const q = `
+SELECT
+  id, kind, url,
+  LEFT(COALESCE(payload->>'respText', ''), $3) AS resp_text,
+  LEFT(COALESCE(payload->>'reqBody',  ''), $3) AS req_body,
+  payload
+FROM raw_events
+WHERE url LIKE $1
+ORDER BY id DESC
+LIMIT $2`
+	rows, err := db.Query(ctx, q, urlLike, limit, maxBytes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PeekRawEventRow
+	for rows.Next() {
+		var r PeekRawEventRow
+		if err := rows.Scan(&r.ID, &r.Kind, &r.URL, &r.RespText, &r.ReqBody, &r.Payload); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // MaxRawEventID returns the current max(id) of raw_events (0 if empty).
 func (db *DB) MaxRawEventID(ctx context.Context) (int64, error) {
 	var id int64

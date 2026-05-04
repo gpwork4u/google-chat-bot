@@ -8,10 +8,23 @@ description: 處理 Google Chat AI Agent 後端的待處理訊息。執行一次
 這個 skill 跟 `http://localhost:8080`（本機 Go backend）互動。執行一次的任務：
 
 1. 抓目前滿足使用者條件的待處理訊息。
-2. 為每則訊息判斷「該不該回」、「怎麼回」。
+2. 為每則訊息**分類**（閒聊 / 工作瑣事 / 工程開發 / skip），依類別走對應 playbook 判斷與起草。
 3. 把回覆透過 reply API 送回 backend；依照 `auto_mode` 決定是否立即送出。
 
 Backend 已經依 UI 上的 Channel 白名單 + 「只回 @ 我」 + 沒 draft 過濾過，所以這個 skill 不用再處理 channel 條件。
+
+## References（必看）
+
+每類訊息的處理邏輯放在 `references/`，拉完 context 後依分類去讀對應檔：
+
+- `references/categorize.md` — 四分類規則與訊號清單
+- `references/daily-chat.md` — 閒聊回覆風格
+- `references/work-coordination.md` — 工作瑣事（排程 / 狀態 / 催進度）
+- `references/engineering.md` — 工程開發訊息 dispatcher + 時間盒 + 子 skill 呼叫
+- `references/repo-map.md` — 本機各 repo 位置與關鍵字，工程訊息定位用
+- `references/jira.md` — 訊息含 Jira 連結 / ticket ID 時如何 fetch ticket 並判讀
+- `references/clarify.md` — 需求 / feature 不明確時如何追問（避免瞎承諾 / 瞎實作）
+- `references/profile.md` — 個人資訊（家在哪 / 工作 / 寵物...）透過 `/api/claude/profile` 取得 + visibility 判斷
 
 ## Workflow
 
@@ -52,6 +65,16 @@ curl -s "http://localhost:8080/api/claude/style-profile?space_key=<anchor_space_
 ```
 只拿該 space 的樣本。
 
+### 0.5. 拉一次 profile facts（跟 style-profile 一起做）
+
+當 pending 訊息可能問到個人資訊（你家在哪、公司、寵物、行程）時，查使用者自己留的 facts：
+
+```bash
+curl -s "http://localhost:8080/api/claude/profile"
+```
+
+回傳 `public` + `private` facts（`secret` 永遠不回）。拿到 `private` 不等於可說 — 要依 sender / space 判斷。詳見 `references/profile.md`。
+
 ### 1. 拿待處理訊息
 
 ```bash
@@ -90,78 +113,64 @@ Response：
 
 如果 `pending` 是空陣列：回報「沒有待處理訊息」並結束。
 
-### 2. 先拉完整前後文（必做，不跳）
+### 2. 先拉完整前後文（強制，不能跳）
 
-對每則 pending message，**先拉 context 才能判斷**要不要回、怎麼回：
+**每則 pending message 都必須先拉 context 才能進入 step 3**。backend 有專門的 API：
 
 ```bash
 curl -s "http://localhost:8080/api/messages/<message_id>/context?window_minutes=720&limit=200"
 ```
 
-（12 小時、最多 200 筆 — 值故意拉很大，讓你看到整個 thread 脈絡 + 同 space 當天在聊什麼。上限是 7 天 / 500 筆。）
+（12 小時、最多 200 筆 — 值故意拉很大。上限是 7 天 / 500 筆。）
 
 Response：
 
 ```json
 {
-  "anchor": { ... },
-  "thread": [ ...同 thread 按時間排，無筆數上限 ],
-  "around": [ ...同 space 其他 topic，±720 分鐘內，最多 200 筆 ]
+  "anchor": { ... },           // 這則 pending message 本身
+  "thread": [ ...同 thread 按時間排 ],     // 同 thread 的前後訊息（完整，無上限）
+  "around": [ ...同 space 其他 topic ]   // 同 space 其他討論（±720 分鐘）
 }
 ```
 
-### 3. 判斷要不要回（**傾向不回**）
+**必讀原因**：pending message 的 `body` 常常是片段 — 「那個可以嗎」「同上」「好喔我再試」。body 本身無意義，**意義在 thread 與 around**。沒讀 context 就分類或起草 = 瞎猜。
 
-預設值：**skip**。只在真的值得回、而且能有意義回應時，才進入第 4 步。
+**讀 context 的重點**：
+- **thread**：完整看（時間排序）。指涉詞「那個」、「這個」、「剛剛說的」都要從 thread 還原。看 thread 最後一則是誰發的（決定要不要回），以及是否已解（對方道謝 / 別人答了）。
+- **around**：掃一下看對方這段時間在聊什麼主題 / 有沒有提過相關事。特別是 `thread` 很短（只有 anchor 一則）時，`around` 是唯一線索。
+- **anchor.sender_is_me** / **thread 最後一則 sender**：double check 不要回自己。
+- **最近 N 則先看**：訊息量大時從最新往回看，找「觸發這則 pending 的前因」。
 
-**必 skip（這幾類直接放過，連 draft 都不產）**：
+**讀完後把關鍵脈絡寫進 draft 的 `reasoning` 欄位**（例：「anchor 問『那個』指 thread 前 2 則討論的 X 功能；thread 最後是 OOO 還沒回 → 適合我接」），方便使用者在 UI review。
 
-- body 是純 ack / 表情：「OK」「收到」「了解」「好」「👍」「謝謝」
-- 明顯的 bot / system message（`sender_name` 帶 "App"、"Bot"、「Google Meet」這類）
-- 包含 `blocked_keywords` 的任何一個 keyword
-- 有人**正在問別人**（例如 body 開頭是 `@某某某` 但不是 `@<local_user_name>`）
-  - `mentioned=true` 且 mention 的名字是自己才算 at 我
-- 公告 / 廣播類訊息（「提醒大家」「FYI」「明天有活動」— 不需要你特地回）
-- thread 裡最後一則已經是**你自己**發的（`sender_is_me=true`）— 等對方接
-- thread 最後幾則看起來**事情已經有解**（對方已道謝 / 確認收到 / 問題被別人答了）
+不讀 context 就直接判斷是這個 skill 最常見的錯誤 — 不要犯。
 
-**傾向 skip 的灰色地帶（寧缺勿濫）**：
+### 3. 分類（讀 `references/categorize.md`）
 
-- 訊息意義不明，看不懂對方想幹嘛
-- 對方問很具體的事實，你不知道正確答案（亂回會誤導）
-- 純閒聊（午餐吃什麼、天氣 😅）— 這種你回也沒價值
-- 工作協調需要跟別人確認才能答（排程、專案狀態、別人的工作）
-- 任何你會猶豫的訊息 → **skip**
+先判斷是 A/B/C/D 哪一類：
 
-**政策紅線（一定 skip，不可跨）**：
+- **A. daily-chat** — 閒聊 / 午餐 / 週末 / 八卦
+- **B. work-coordination** — 排程 / 狀態 / 催進度 / 確認 owner
+- **C. engineering** — 需要看 code / 查 log / 跑指令才能答
+- **D. skip** — 純 ack / bot / 政策紅線 / 自己發的 / 問別人的
 
-- 涉及金錢 / 匯款 / 報價 / 付款條件
-- 對外客戶溝通
-- 合約 / 法務相關
-- 密碼 / API key / 憑證
-- 人事 / 薪資 / 績效
-- 任何「承諾交付時間或結果」的語句（例：「明天一定完成」、「交給我沒問題」）
+**傾向回**：A/B/C 都起草，只有 D 跳過。不知道答案 ≠ 不能回 — 誠實說「不知道，晚點確認」本身就是有價值的回覆。
 
-只有當訊息**明顯適合你回**、你也**有把握回得好**的時候，才繼續下一步。
+**需求不明確時必追問**：當訊息是 B 或 C 類且屬於「要求 / feature request / 委託」但 scope 不清（例：「幫我加個 export」、「那個 bug 修一下」）→ 讀 `references/clarify.md`，回一個**具體的追問**而不是瞎承諾或瞎實作。
 
-重要：skill 存在的目的是幫使用者減少噪音，不是衝量。**每一則都傾向 skip** 才對。
+**政策紅線（一律 D skip）**：金錢 / 匯款 / 報價 / 合約 / 法務 / 對外客戶 / 密碼 / API key / 憑證 / 人事 / 薪資 / 績效；任何「承諾交付時間或結果」也 skip（例：「明天一定完成」、「沒問題交給我」）。
 
-### 4. 產生回覆
+### 4. 依類別走對應 playbook 起草
 
-使用**繁體中文**，配合：
+- **A daily-chat** → 讀 `references/daily-chat.md`，直接依 style profile 起草，不用額外調查
+- **B work-coordination** → 讀 `references/work-coordination.md`，留退路 / 不承諾
+- **C engineering** → 讀 `references/engineering.md` + `references/repo-map.md`：
+  - 依子類型（error / perf / git / test / 架構）決定是否呼叫 debug-loki / debug-pprof / git-repo / go-testing / go-development / jira-bug-fix 等 skill
+  - 或開 Explore subagent 去 repo 裡查
+  - **時間盒：每則訊息最多 5 個 tool call**。超過就 fallback「我晚點看」並仍送 draft
+  - 需要改多檔的大改動 → skip，讓使用者接手
 
-- **使用者自己的風格樣本**（第 0 步的 `samples`）— 這是主要對齊目標
-- sender 的語氣（從 thread history 觀察）
-- space 的性質（看 `space_name`：工作 / 閒聊 / 特定專案）
-- 訊息長度：對方一句話就回一句話，對方長篇就可以多寫一些。參考 `median_length`：若中位數只有 6 字，回覆就別寫成 30 字
-
-回覆長度以貼近 style profile 為準——使用者平常怎麼講話，就怎麼寫。不要變成有禮貌的 AI 客服風格。
-
-**安全護欄**：
-
-- 任何涉及金錢 / 承諾 / 合約 / 對外客戶 / 密碼憑證 → skip（讓使用者手動處理）
-- 不確定事實的事情 → 標明「不確定，讓我確認一下」而不是瞎回
-- 不要輕易代替使用者做承諾（例：「明天一定完成」、「沒問題交給我」）
+**風格共同準則**：使用繁體中文，貼近 style profile 樣本（句長、虛詞、中英夾雜、有無句號），不要變有禮貌的 AI 客服。參考 `median_length`：樣本中位數 6 字，回覆就別寫 30 字。
 
 ### 5. 送出
 
@@ -184,28 +193,34 @@ curl -s -X POST http://localhost:8080/api/claude/reply \
 
 重複 POST 同一個 `message_id` 會**更新**現有 pending/approved draft（body 覆蓋過去），不會重複堆疊。使用者若想換你換過的內容，先到 UI reject 再 re-run skill。
 
-`send_mode` 預設 `"reply_thread"`（保持在原 thread）。只有明顯應該開新話題才用 `"new_topic"`。
+`send_mode` 規則（**一律用 `"reply_thread"`**）：
+
+- 固定傳 `"reply_thread"`，不要用 `"new_topic"`。
+- Backend 在拼 pending draft 時會自動 fallback：`thread_key` 空字串就用 `message_key` 當 thread anchor（top-level 訊息本身就是自己的 thread），所以 reply_thread 對所有 pending message 都適用。
+- `/api/claude/pending` 回傳的 `thread_key` 也已經套了這個 fallback，看到值不用再自己判斷。
+- `new_topic` 在目前實作下有 spaceRef fallback 的風險會送錯 space，除非真的要另開新話題，一般不要用。
 
 成功 response：`{"ok": true, "draft_id": 456, "status": "approved", "auto_sent": true}` — 看 `auto_sent` 知道 backend 最終是直接送了還是放 pending。
 
 ### 6. 每則輸出一行 log
 
-格式（reason 用繁中簡短說明）：
+格式：`[分類]` + reason 用繁中簡短說明：
 
 ```
-→ replied #123 "ok 我看一下…" (auto_sent=true)
-→ skipped #124 GP Wang: "收到" (純 ack)
-→ skipped #125 Jordan: "明天會議幾點?" (排程事，不知道答案)
-→ replied #126 "這個我晚點處理" (auto_sent=false, 等 UI approve)
+→ [C] replied #123 "在 chat_processor.go:127，我再追一下" (auto_sent=true, engineering/查 code)
+→ [D] skipped #124 GP Wang: "收到" (純 ack)
+→ [B] replied #125 "不確定欸，我晚點查一下" (auto_sent=false, work/排程事實用不知道回)
+→ [A] replied #126 "還沒想欸" (auto_sent=true, daily/午餐閒聊)
+→ [C] replied #127 "我看一下 loki，晚點回" (auto_sent=false, engineering/時間盒用完 fallback)
 ```
 
 全部跑完印 summary：
 
 ```
-Processed 5 messages: replied=2 (auto_sent=1) skipped=3
+Processed 5 messages: replied=4 (auto_sent=1) skipped=1
 ```
 
-skip 是正常且期望的行為 — 不要因為 pending 很多就覺得一定要回幾則。空回 0 則是合理的結果。
+盡量回 — 不知道就誠實回「不確定，我再確認」也比沉默好。skip 只留給必 skip 那幾類跟政策紅線。
 
 ## 邊界情況
 

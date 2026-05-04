@@ -141,8 +141,10 @@ func handlePatchDraft(w http.ResponseWriter, r *http.Request, db *store.DB, h *h
 }
 
 // pushPendingForUser broadcasts the currently-approved pending drafts to any
-// connected extension WebSockets. Best-effort; over-sending is fine because
-// content.js dedupes by draft_id.
+// connected extension WebSockets. Each draft is claimed in the hub before
+// publishing so that even when multiple Chat tabs are open (each tab's
+// content.js holds its own WS + inFlightDrafts set), the draft gets dispatched
+// to create_message exactly once instead of once per tab.
 func pushPendingForUser(ctx context.Context, db *store.DB, h *hub.Hub) {
 	user, err := db.EnsureLocalUser(ctx, "", "")
 	if err != nil || user == nil {
@@ -153,6 +155,9 @@ func pushPendingForUser(ctx context.Context, db *store.DB, h *hub.Hub) {
 		return
 	}
 	for _, item := range pending {
+		if !h.ClaimDraft(item.DraftID) {
+			continue
+		}
 		h.Pending(item)
 	}
 }
@@ -388,6 +393,7 @@ func handleExtSent(w http.ResponseWriter, r *http.Request, db *store.DB, h *hub.
 		return
 	}
 	if h != nil {
+		h.ReleaseDraft(req.DraftID)
 		h.InboxChanged()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

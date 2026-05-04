@@ -39,10 +39,11 @@ type MessageBrief struct {
 // stub placeholder, along with context to help a follow-up process generate
 // a real reply.
 func (db *DB) GetPendingDraftsNeedingGeneration(ctx context.Context, userID int64, limit int) ([]PendingDraftView, error) {
-	const listQ = `
-SELECT d.id, m.id, m.space_key, m.sender_name, m.sender_is_me, m.body, m.observed_at
+	listQ := `
+SELECT d.id, m.id, m.space_key,
+       ` + senderNameExpr + `, m.sender_is_me, m.body, m.observed_at
 FROM drafts d
-JOIN messages m ON m.id = d.message_id
+JOIN messages m ON m.id = d.message_id` + memberJoin + `
 WHERE m.user_id = $1
   AND d.status = 'pending'
   AND d.model = 'stub'
@@ -104,11 +105,11 @@ LIMIT $2`
 }
 
 func (db *DB) recentUserStyleSamples(ctx context.Context, userID int64, limit int) ([]MessageBrief, error) {
-	const q = `
-SELECT sender_name, sender_is_me, body, observed_at
-FROM messages
-WHERE user_id = $1 AND sender_is_me = TRUE AND length(body) > 2
-ORDER BY observed_at DESC
+	q := `
+SELECT ` + senderNameExpr + `, m.sender_is_me, m.body, m.observed_at
+FROM messages m` + memberJoin + `
+WHERE m.user_id = $1 AND m.sender_is_me = TRUE AND length(m.body) > 2
+ORDER BY m.observed_at DESC
 LIMIT $2`
 	rows, err := db.Query(ctx, q, userID, limit)
 	if err != nil {
@@ -127,11 +128,11 @@ LIMIT $2`
 }
 
 func (db *DB) recentSpaceMessages(ctx context.Context, userID int64, spaceKey string, beforeOrAt time.Time, limit int) ([]MessageBrief, error) {
-	const q = `
-SELECT sender_name, sender_is_me, body, observed_at
-FROM messages
-WHERE user_id = $1 AND space_key = $2 AND observed_at <= $3
-ORDER BY observed_at DESC
+	q := `
+SELECT ` + senderNameExpr + `, m.sender_is_me, m.body, m.observed_at
+FROM messages m` + memberJoin + `
+WHERE m.user_id = $1 AND m.space_key = $2 AND m.observed_at <= $3
+ORDER BY m.observed_at DESC
 LIMIT $4`
 	rows, err := db.Query(ctx, q, userID, spaceKey, beforeOrAt, limit)
 	if err != nil {

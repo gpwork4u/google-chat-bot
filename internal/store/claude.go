@@ -41,24 +41,62 @@ func (db *DB) BuildStyleProfile(ctx context.Context, userID int64, spaceKey stri
 
 	out := &StyleProfile{BySpace: map[string]int{}}
 
+	// Junk-sample filter shared by every query below. Excludes:
+	//   * `[stub draft]` — residue from the retired auto-stub drafter
+	//     (commit 43b84d7 stopped producing these but old rows linger and
+	//     would skew stats / mislead downstream style alignment).
+	//   * pure `test`-like probes — `test`, `test==`, `testaa`, etc. These
+	//     are pipeline probes, not voice samples.
+	const junkFilter = `
+  AND body NOT LIKE '[stub draft]%'
+  AND body !~* '^test[[:alnum:]=]*$'`
+
 	// 1. Corpus-wide stats (ignore spaceKey filter for these so the agent
 	//    sees the full picture even if a specific space is requested).
-	const qStats = `
+	qStats := `
 SELECT
   count(*) AS n,
   COALESCE(ROUND(AVG(length(body)))::int, 0) AS avg_len,
   COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY length(body))::int, 0) AS med_len
 FROM messages
-WHERE user_id = $1 AND sender_is_me = TRUE AND body <> ''`
+WHERE user_id = $1 AND sender_is_me = TRUE AND body <> ''` + junkFilter
 	if err := db.QueryRow(ctx, qStats, userID).Scan(&out.CorpusSize, &out.AvgLength, &out.MedianLength); err != nil {
 		return nil, err
 	}
 
+	// Human-readable space label. Same fallback chain ListClaudePending
+	// uses: spaces_directory → "<peer> (DM)" → messages.space_name → key.
+	// Kept as a SQL fragment so stats/samples/by_space stay in lockstep.
+	const labelExpr = `COALESCE(
+  NULLIF(dir.display_name, ''),
+  CASE WHEN array_length(peer.names, 1) = 1
+       THEN peer.names[1] || ' (DM)' END,
+  CASE WHEN m.space_name IS NULL
+         OR m.space_name = ''
+         OR m.space_name = m.space_key
+         OR m.space_name LIKE 'space:%' THEN NULL
+       ELSE m.space_name END,
+  m.space_key
+)`
+	const peerJoin = `
+LEFT JOIN spaces_directory dir
+  ON dir.user_id = m.user_id AND dir.space_key = m.space_key
+LEFT JOIN LATERAL (
+  SELECT array_agg(DISTINCT COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name)) AS names
+  FROM messages peer_m
+  LEFT JOIN chat_members cm2
+    ON cm2.user_id = peer_m.user_id AND cm2.member_id = peer_m.sender_id
+  WHERE peer_m.user_id = m.user_id
+    AND peer_m.space_key = m.space_key
+    AND peer_m.sender_is_me = FALSE
+    AND COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name) <> ''
+) peer ON TRUE`
+
 	// 2. by_space counts (top 20 only to keep response bounded).
-	const qBySpace = `
-SELECT COALESCE(space_name, space_key) AS label, count(*) AS n
-FROM messages
-WHERE user_id = $1 AND sender_is_me = TRUE AND body <> ''
+	qBySpace := `
+SELECT ` + labelExpr + ` AS label, count(*) AS n
+FROM messages m` + peerJoin + `
+WHERE m.user_id = $1 AND m.sender_is_me = TRUE AND m.body <> ''` + junkFilter + `
 GROUP BY label
 ORDER BY n DESC
 LIMIT 20`
@@ -83,21 +121,21 @@ LIMIT 20`
 	args := []any{userID, minLength, limit}
 	if spaceKey != "" {
 		q = `
-SELECT body, space_key, COALESCE(space_name, space_key), observed_at
-FROM messages
-WHERE user_id = $1 AND sender_is_me = TRUE AND body <> ''
-  AND length(body) >= $2
-  AND space_key = $4
-ORDER BY observed_at DESC
+SELECT m.body, m.space_key, ` + labelExpr + `, m.observed_at
+FROM messages m` + peerJoin + `
+WHERE m.user_id = $1 AND m.sender_is_me = TRUE AND m.body <> ''
+  AND length(m.body) >= $2
+  AND m.space_key = $4` + junkFilter + `
+ORDER BY m.observed_at DESC
 LIMIT $3`
 		args = append(args, spaceKey)
 	} else {
 		q = `
-SELECT body, space_key, COALESCE(space_name, space_key), observed_at
-FROM messages
-WHERE user_id = $1 AND sender_is_me = TRUE AND body <> ''
-  AND length(body) >= $2
-ORDER BY observed_at DESC
+SELECT m.body, m.space_key, ` + labelExpr + `, m.observed_at
+FROM messages m` + peerJoin + `
+WHERE m.user_id = $1 AND m.sender_is_me = TRUE AND m.body <> ''
+  AND length(m.body) >= $2` + junkFilter + `
+ORDER BY m.observed_at DESC
 LIMIT $3`
 	}
 	rows, err = db.Query(ctx, q, args...)
@@ -145,6 +183,18 @@ type ClaudePending struct {
 // mention gate so you can end-to-end test the skill pipeline from your
 // own Chat session without needing a second account.
 //
+// Space-name fallback chain for the returned space_name field:
+//  1. spaces_directory.display_name  (jfcZG / get_group populated it)
+//  2. "<peer_sender_name> (DM)"      (single non-self sender in the space)
+//  3. messages.space_name            (mirror column populated at insert)
+//  4. messages.space_key             (raw placeholder, last resort)
+//
+// The (DM) label is deliberately heuristic — any space whose observed
+// non-self senders collapse to one name looks like a DM from our side.
+// Group chats with only one active peer will also get tagged as DM,
+// which is fine for Chat-wise routing since the draft goes to the same
+// room either way.
+//
 // Returned in time-descending order (newest first); cap with limit.
 func (db *DB) ListClaudePending(ctx context.Context, userID int64, since time.Time, limit int, debug bool) ([]ClaudePending, error) {
 	if limit <= 0 || limit > 200 {
@@ -171,8 +221,23 @@ func (db *DB) ListClaudePending(ctx context.Context, userID int64, since time.Ti
 	}
 	q := fmt.Sprintf(`
 SELECT
-  m.id, m.space_key, m.space_name, m.thread_key, m.message_key,
-  m.sender_name, m.body, m.observed_at,
+  m.id,
+  m.space_key,
+  COALESCE(
+    NULLIF(dir.display_name, ''),
+    CASE WHEN array_length(peer.names, 1) = 1
+         THEN peer.names[1] || ' (DM)' END,
+    CASE WHEN m.space_name IS NULL
+           OR m.space_name = ''
+           OR m.space_name = m.space_key
+           OR m.space_name LIKE 'space:%%' THEN NULL
+         ELSE m.space_name END,
+    m.space_key
+  ) AS space_name,
+  COALESCE(NULLIF(m.thread_key, ''), m.message_key) AS thread_key,
+  m.message_key,
+  COALESCE(NULLIF(cm.display_name, ''), m.sender_name) AS sender_name,
+  m.body, m.observed_at,
   CASE
     WHEN COALESCE(u.name, '') = '' THEN FALSE
     ELSE position(lower('@' || u.name) in lower(m.body)) > 0
@@ -186,6 +251,20 @@ LEFT JOIN user_settings us
   ON us.user_id = m.user_id
 LEFT JOIN users u
   ON u.id = m.user_id
+LEFT JOIN spaces_directory dir
+  ON dir.user_id = m.user_id AND dir.space_key = m.space_key
+LEFT JOIN chat_members cm
+  ON cm.user_id = m.user_id AND cm.member_id = m.sender_id
+LEFT JOIN LATERAL (
+  SELECT array_agg(DISTINCT COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name)) AS names
+  FROM messages peer_m
+  LEFT JOIN chat_members cm2
+    ON cm2.user_id = peer_m.user_id AND cm2.member_id = peer_m.sender_id
+  WHERE peer_m.user_id = m.user_id
+    AND peer_m.space_key = m.space_key
+    AND peer_m.sender_is_me = FALSE
+    AND COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name) <> ''
+) peer ON TRUE
 WHERE m.user_id = $1
   AND d.id IS NULL
   AND COALESCE(s.disabled, TRUE) = FALSE%s%s%s

@@ -141,10 +141,13 @@ func (p *ChatProcessor) ensureUser(ctx context.Context) error {
 }
 
 // backfillMembers populates chat_members from everything we've already
-// captured. Two sources:
+// captured. Three sources:
 //   1. list_topics responses — each message row carries sender name+email.
 //   2. list_members responses that included the optional profile block
 //      (triggered when the user opens the member directory / browse space).
+//   3. batchexecute UIgx0 — one call to the management panel returns the
+//      whole visible org directory, so a single capture usually covers
+//      everyone the user sees.
 //
 // Called once on startup so webchannel push frames (which carry only
 // sender_id) can be enriched with a display_name going forward.
@@ -157,10 +160,15 @@ func (p *ChatProcessor) backfillMembers(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	fromDirectory, err := p.backfillMembersFromUIgx0(ctx)
+	if err != nil {
+		return err
+	}
 	count, _ := p.db.CountChatMembers(ctx, p.userID)
 	slog.Info("members backfill completed",
 		"from_list_topics", fromMessages,
 		"from_list_members", fromProfiles,
+		"from_directory", fromDirectory,
 		"directory_size", count)
 	return nil
 }
@@ -190,6 +198,40 @@ func (p *ChatProcessor) backfillMembersFromListTopics(ctx context.Context) (int,
 				}
 				if err := p.db.UpsertChatMember(ctx, p.userID, m.SenderID, m.SenderName, m.SenderEmail); err != nil {
 					slog.Warn("upsert chat member (list_topics)", "err", err, "member", m.SenderID)
+					continue
+				}
+				upserted++
+			}
+		}
+	}
+}
+
+func (p *ChatProcessor) backfillMembersFromUIgx0(ctx context.Context) (int, error) {
+	var lastID int64
+	var upserted int
+	for {
+		rows, err := p.db.RawEventsSince(ctx, lastID, "%UIgx0%", batchSize)
+		if err != nil {
+			return upserted, err
+		}
+		if len(rows) == 0 {
+			return upserted, nil
+		}
+		for _, row := range rows {
+			if row.ID > lastID {
+				lastID = row.ID
+			}
+			members, err := parser.ParseBatchExecuteUIgx0([]byte(row.RespText))
+			if err != nil {
+				slog.Warn("parse UIgx0", "raw_event_id", row.ID, "err", err)
+				continue
+			}
+			for _, m := range members {
+				if m.ID == "" {
+					continue
+				}
+				if err := p.db.UpsertChatMember(ctx, p.userID, m.ID, m.DisplayName, m.Email); err != nil {
+					slog.Warn("upsert chat member (UIgx0)", "err", err, "member", m.ID)
 					continue
 				}
 				upserted++
@@ -261,7 +303,44 @@ func (p *ChatProcessor) backfillSpaceNames(ctx context.Context) error {
 			updated++
 		}
 	}
-	slog.Info("space-name backfill completed", "raw_events_scanned_through", lastID, "updates_attempted", updated)
+	// Second pass: bulk-mapping payloads from /batchexecute?rpcids=jfcZG.
+	// Each hit brings ~100 spaces in one shot, so this typically runs once
+	// and covers every room the user sees in the Browse panel.
+	var bulkLastID int64
+	var bulkUpdated int
+	for {
+		rows, err := p.db.RawEventsSince(ctx, bulkLastID, "%jfcZG%", batchSize)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		for _, row := range rows {
+			if row.ID > bulkLastID {
+				bulkLastID = row.ID
+			}
+			spaces, err := parser.ParseBatchExecuteJfcZG([]byte(row.RespText))
+			if err != nil {
+				slog.Warn("parse jfcZG", "raw_event_id", row.ID, "err", err)
+				continue
+			}
+			for _, s := range spaces {
+				if s.SpaceKey == "" || s.SpaceName == "" {
+					continue
+				}
+				if err := p.db.UpsertSpaceName(ctx, p.userID, s.SpaceKey, s.SpaceName); err != nil {
+					slog.Warn("upsert space name (jfcZG)", "err", err, "space", s.SpaceKey)
+					continue
+				}
+				bulkUpdated++
+			}
+		}
+	}
+	slog.Info("space-name backfill completed",
+		"raw_events_scanned_through", lastID,
+		"updates_attempted", updated,
+		"bulk_updates_attempted", bulkUpdated)
 	return nil
 }
 
@@ -390,6 +469,47 @@ func (p *ChatProcessor) Ingest(ctx context.Context, kind, url string, payload js
 		p.ingestBatchExecuteSenderSearch(ctx, url, respText)
 		if p.hub != nil {
 			p.hub.ActivityBump()
+		}
+
+	case strings.Contains(url, "batchexecute") && strings.Contains(url, "UIgx0"):
+		members, err := parser.ParseBatchExecuteUIgx0([]byte(respText))
+		if err != nil {
+			slog.Warn("ingest parse UIgx0", "err", err, "url", url)
+			return err
+		}
+		upserted := 0
+		for _, m := range members {
+			if m.ID == "" {
+				continue
+			}
+			if err := p.db.UpsertChatMember(ctx, p.userID, m.ID, m.DisplayName, m.Email); err != nil {
+				slog.Warn("upsert chat member (UIgx0)", "err", err, "member", m.ID)
+				continue
+			}
+			upserted++
+		}
+		slog.Info("ingest UIgx0", "parsed", len(members), "upserted", upserted)
+
+	case strings.Contains(url, "batchexecute") && strings.Contains(url, "jfcZG"):
+		spaces, err := parser.ParseBatchExecuteJfcZG([]byte(respText))
+		if err != nil {
+			slog.Warn("ingest parse jfcZG", "err", err, "url", url)
+			return err
+		}
+		upserted := 0
+		for _, s := range spaces {
+			if s.SpaceKey == "" || s.SpaceName == "" {
+				continue
+			}
+			if err := p.db.UpsertSpaceName(ctx, p.userID, s.SpaceKey, s.SpaceName); err != nil {
+				slog.Warn("upsert space name (jfcZG)", "err", err, "space", s.SpaceKey)
+				continue
+			}
+			upserted++
+		}
+		slog.Info("ingest jfcZG", "parsed", len(spaces), "upserted", upserted)
+		if p.hub != nil && upserted > 0 {
+			p.hub.SpacesChanged()
 		}
 
 	case strings.Contains(url, "get_user_settings"):
@@ -597,9 +717,22 @@ func (p *ChatProcessor) requestInitialSenderSearch(ctx context.Context) {
 // process lifetime. Guarded by p.mu.
 var senderSearchCount int
 
+// lastSenderSearchOldestMs is the OldestObserved of the most recently
+// ingested SBNmJb page, used as a forward-progress check. If a new page
+// comes back with the same (or newer) oldest boundary as the previous,
+// we stop paginating instead of busy-looping the RPC.
+var lastSenderSearchOldestMs int64
+
 // ingestBatchExecuteSenderSearch parses a batchexecute SBNmJb response
 // forwarded through the XHR raw path and, if we're still below the cap
 // and the page wasn't empty, asks the extension to fetch the next page.
+//
+// Bypasses freshnessWindow: SBNmJb's job is back-filling the user's own
+// historical messages as style corpus, so dropping old pages defeats
+// the feature. Pending queue is unaffected because it filters
+// sender_is_me=TRUE out and these rows are always sender_is_me=TRUE.
+// Pagination stops naturally on extensionSenderSearchCap or an empty
+// response page.
 func (p *ChatProcessor) ingestBatchExecuteSenderSearch(ctx context.Context, url, respText string) {
 	page, err := parser.ParseBatchExecuteSBNmJb([]byte(respText))
 	if err != nil {
@@ -613,9 +746,6 @@ func (p *ChatProcessor) ingestBatchExecuteSenderSearch(ctx context.Context, url,
 
 	inserted := 0
 	for _, m := range page.Messages {
-		if !isFresh(m.ObservedAt) {
-			continue
-		}
 		spaceName := m.SpaceKey
 		if known, _ := p.db.LookupSpaceName(ctx, p.userID, m.SpaceKey); known != "" {
 			spaceName = known
@@ -625,6 +755,7 @@ func (p *ChatProcessor) ingestBatchExecuteSenderSearch(ctx context.Context, url,
 			SpaceKey:   m.SpaceKey,
 			SpaceName:  spaceName,
 			MessageKey: m.MessageKey,
+			SenderID:   m.SenderID,
 			SenderName: p.userName,
 			SenderIsMe: true,
 			Body:       m.Body,
@@ -647,6 +778,15 @@ func (p *ChatProcessor) ingestBatchExecuteSenderSearch(ctx context.Context, url,
 		"total", senderSearchCount,
 		"oldest", page.OldestObserved.Format(time.RFC3339),
 	)
+	// SBNmJb surfaces messages from spaces the user may never have opened
+	// in the extension-hosted Chat UI, so spaces_directory has no name for
+	// them and they'd render as raw "space:…" keys. Kick a name refresh
+	// whenever a page brought in new rows — the extension will call
+	// get_group for each still-nameless space and the response flows back
+	// through the raw ingest path to fill spaces_directory.
+	if inserted > 0 {
+		p.requestSpaceNameRefresh(ctx)
+	}
 
 	if senderSearchCount >= extensionSenderSearchCap {
 		slog.Info("sender-search: cap reached", "total", senderSearchCount)
@@ -655,14 +795,14 @@ func (p *ChatProcessor) ingestBatchExecuteSenderSearch(ctx context.Context, url,
 	if page.OldestObserved.IsZero() {
 		return
 	}
-	// If even the newest message on this page already fell off the
-	// freshness window, the next (older) page can't possibly contain
-	// anything we'd insert. Stop paginating.
-	if !isFresh(page.NewestObserved) {
-		slog.Info("sender-search: page older than freshness window, stopping",
-			"newest", page.NewestObserved.Format(time.RFC3339))
+	oldestMs := page.OldestObserved.UnixMilli()
+	if lastSenderSearchOldestMs != 0 && oldestMs >= lastSenderSearchOldestMs {
+		slog.Info("sender-search: no forward progress, stopping",
+			"oldest", page.OldestObserved.Format(time.RFC3339),
+			"total", senderSearchCount)
 		return
 	}
+	lastSenderSearchOldestMs = oldestMs
 	ldap := page.LdapFilter
 	if ldap == "" {
 		ldap = ldapFromEmail(p.userEmail)
@@ -680,6 +820,11 @@ func (p *ChatProcessor) ingestBatchExecuteSenderSearch(ctx context.Context, url,
 //   * enriches the style corpus downstream tooling reads from
 //   * back-fills historical rows that predated the WasRecentlySentDraft
 //     detection so we stop mistakenly drafting replies to ourselves
+//
+// Unlike the extension push path, stylesync intentionally bypasses the
+// freshnessWindow gate: its entire purpose is importing historical voice
+// samples. Pending queue stays clean because it filters sender_is_me=TRUE
+// out, so these rows never surface as things to reply to.
 //
 // Session is optional and session tokens expire regularly; failures here
 // only log and never block startup.
@@ -731,9 +876,6 @@ func (p *ChatProcessor) syncStyleCorpus(ctx context.Context, sessionPath string)
 			if m.MessageKey == "" || m.Body == "" {
 				continue
 			}
-			if !isFresh(m.ObservedAt) {
-				continue
-			}
 			spaceName := m.SpaceKey
 			if known, _ := p.db.LookupSpaceName(ctx, userID, m.SpaceKey); known != "" {
 				spaceName = known
@@ -743,6 +885,7 @@ func (p *ChatProcessor) syncStyleCorpus(ctx context.Context, sessionPath string)
 				SpaceKey:   m.SpaceKey,
 				SpaceName:  spaceName,
 				MessageKey: m.MessageKey,
+				SenderID:   m.SenderID,
 				SenderName: p.userName,
 				SenderIsMe: true,
 				Body:       m.Body,
@@ -771,11 +914,6 @@ func (p *ChatProcessor) syncStyleCorpus(ctx context.Context, sessionPath string)
 		)
 
 		if decoded.OldestObserved.IsZero() {
-			return
-		}
-		if !isFresh(decoded.NewestObserved) {
-			slog.Info("stylesync: page older than freshness window, stopping",
-				"newest", decoded.NewestObserved.Format(time.RFC3339))
 			return
 		}
 		nextBefore := decoded.OldestObserved.UnixMilli()
@@ -862,6 +1000,7 @@ func (p *ChatProcessor) ingestMessage(ctx context.Context, pm parser.ParsedMessa
 		SpaceName:  spaceName,
 		ThreadKey:  pm.TopicID,
 		MessageKey: pm.MessageID,
+		SenderID:   pm.SenderID,
 		SenderName: pm.SenderName,
 		SenderIsMe: senderIsMe,
 		Body:       pm.Body,

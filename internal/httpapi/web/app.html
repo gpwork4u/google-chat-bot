@@ -65,6 +65,30 @@
     <summary style="cursor:pointer;font-weight:600;font-size:14px;">Channel 設定 <span id="space-counter" style="color:var(--muted);font-weight:400;"></span></summary>
     <div id="space-list" style="margin-top:10px;"></div>
   </details>
+  <details style="background:white;border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+    <summary style="cursor:pointer;font-weight:600;font-size:14px;">個人資訊 <span id="profile-counter" style="color:var(--muted);font-weight:400;"></span></summary>
+    <div style="margin-top:6px;color:var(--muted);font-size:12px;line-height:1.5;">
+      給 AI 的個人事實資料（住哪、公司、寵物…）。<b>public</b>：任何場合都可說；<b>private</b>：AI 自行判斷熟識關係再說；<b>secret</b>：AI 看不到（連 API 也不回），純留底用。
+    </div>
+    <div id="profile-list" style="margin-top:10px;"></div>
+    <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--border);">
+      <div class="label" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">新增 / 覆寫</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+        <input id="profile-new-key" placeholder="key（如 home_city、employer、pet）" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font:inherit;">
+        <select id="profile-new-visibility" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font:inherit;">
+          <option value="public">public — 任何場合可說</option>
+          <option value="private" selected>private — AI 自行判斷</option>
+          <option value="secret">secret — AI 看不到</option>
+        </select>
+        <input id="profile-new-value" placeholder="value（如 台北、Taiwan AI Labs、mochi）" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font:inherit;grid-column:1/3;">
+        <input id="profile-new-note" placeholder="note（選填，給 AI 的使用提示，如「只在家人群才說」）" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font:inherit;grid-column:1/3;">
+      </div>
+      <div style="margin-top:8px;display:flex;gap:8px;">
+        <button id="profile-add-btn" class="primary">儲存</button>
+        <span id="profile-add-status" style="font-size:12px;color:var(--muted);align-self:center;"></span>
+      </div>
+    </div>
+  </details>
   <div id="list"></div>
   <div id="empty" class="empty" style="display:none">還沒有收到任何訊息。裝好 extension 後到 Google Chat 對話看看。</div>
 </main>
@@ -319,9 +343,96 @@ async function loadSpaces() {
   } catch (e) { console.error(e); }
 }
 
+async function loadProfile() {
+  try {
+    const r = await fetch(`${API}/api/claude/profile?include_secret=1`);
+    if (!r.ok) return;
+    const { facts } = await r.json();
+    const host = document.getElementById('profile-list');
+    const counter = document.getElementById('profile-counter');
+    const list = facts || [];
+    counter.innerText = list.length ? `(${list.length})` : '(尚未設定)';
+    if (list.length === 0) {
+      host.innerHTML = '<div class="empty" style="padding:8px 0;">還沒設任何 fact。在下面新增一筆試試（例：key=employer、value=Taiwan AI Labs、public）。</div>';
+      return;
+    }
+    const visBadge = v => {
+      const map = { public: ['chip ok', 'public'], private: ['chip warn', 'private'], secret: ['chip err', 'secret'] };
+      const [cls, text] = map[v] || ['chip', v];
+      return `<span class="${cls}" style="flex:none;">${text}</span>`;
+    };
+    host.innerHTML = list.map(f => `
+      <div class="profile-row" style="display:grid;grid-template-columns:140px 1fr auto auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;" data-key="${escape(f.key)}">
+        <div style="font-family:ui-monospace,monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escape(f.key)}">${escape(f.key)}</div>
+        <div style="min-width:0;">
+          <input class="pf-value" value="${escape(f.value)}" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font:inherit;font-size:13px;">
+          ${f.note ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${escape(f.note)}</div>` : ''}
+        </div>
+        <select class="pf-visibility" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font:inherit;font-size:12px;">
+          <option value="public" ${f.visibility === 'public' ? 'selected' : ''}>public</option>
+          <option value="private" ${f.visibility === 'private' ? 'selected' : ''}>private</option>
+          <option value="secret" ${f.visibility === 'secret' ? 'selected' : ''}>secret</option>
+        </select>
+        <div style="display:flex;gap:4px;flex:none;">
+          <button class="pf-save" title="儲存變更">儲存</button>
+          <button class="pf-del danger" title="刪除">✕</button>
+        </div>
+      </div>
+    `).join('');
+    host.querySelectorAll('.pf-save').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.profile-row');
+      const key = row.dataset.key;
+      const value = row.querySelector('.pf-value').value.trim();
+      const visibility = row.querySelector('.pf-visibility').value;
+      if (!value) { alert('value 不能空'); return; }
+      const r = await fetch(`${API}/api/claude/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value, visibility }),
+      });
+      if (r.ok) loadProfile(); else alert('儲存失敗');
+    }));
+    host.querySelectorAll('.pf-del').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.profile-row');
+      const key = row.dataset.key;
+      if (!confirm(`刪除 "${key}"？`)) return;
+      const r = await fetch(`${API}/api/claude/profile?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
+      if (r.ok) loadProfile(); else alert('刪除失敗');
+    }));
+  } catch (e) { console.error(e); }
+}
+
+document.getElementById('profile-add-btn').addEventListener('click', async () => {
+  const key = document.getElementById('profile-new-key').value.trim();
+  const value = document.getElementById('profile-new-value').value.trim();
+  const visibility = document.getElementById('profile-new-visibility').value;
+  const note = document.getElementById('profile-new-note').value.trim();
+  const statusSpan = document.getElementById('profile-add-status');
+  if (!key || !value) { statusSpan.innerText = 'key 跟 value 都要填'; statusSpan.style.color = 'var(--err)'; return; }
+  const r = await fetch(`${API}/api/claude/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, value, visibility, note }),
+  });
+  if (r.ok) {
+    document.getElementById('profile-new-key').value = '';
+    document.getElementById('profile-new-value').value = '';
+    document.getElementById('profile-new-note').value = '';
+    statusSpan.innerText = '已儲存';
+    statusSpan.style.color = 'var(--ok)';
+    loadProfile();
+    setTimeout(() => { statusSpan.innerText = ''; }, 2000);
+  } else {
+    const err = await r.text();
+    statusSpan.innerText = `失敗：${err}`;
+    statusSpan.style.color = 'var(--err)';
+  }
+});
+
 loadSettings();
 loadInbox();
 loadSpaces();
+loadProfile();
 
 // Fallback polling in case the WS goes down; primary path is server push below.
 setInterval(loadInbox, 30000);

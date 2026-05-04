@@ -284,6 +284,11 @@ func handleExtInbound(ctx context.Context, db *store.DB, cfg *config.Config, h *
 			return
 		}
 		if h != nil {
+			// Release the draft's single-dispatch claim so a future retry
+			// after a failed send (or a re-POST to /api/claude/reply that
+			// creates a new draft row with the same id on retry) can be
+			// pushed again.
+			h.ReleaseDraft(m.DraftID)
 			h.InboxChanged()
 		}
 
