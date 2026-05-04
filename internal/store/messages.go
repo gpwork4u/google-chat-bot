@@ -18,7 +18,8 @@ type Message struct {
 	SpaceName  string
 	ThreadKey  string
 	MessageKey string
-	SenderName string
+	SenderID   string // Google numeric user id — FK-ish into chat_members.member_id
+	SenderName string // legacy fallback; real name is joined via chat_members.display_name
 	SenderIsMe bool
 	Body       string
 	ObservedAt time.Time
@@ -43,15 +44,23 @@ type Draft struct {
 
 // InsertOrGetMessage inserts a message, or returns the existing row on (user_id, message_key) conflict.
 // The `inserted` bool tells the caller whether this is the first sighting (and therefore worth drafting).
+//
+// On conflict we also fill in sender_id if the incoming row carries one
+// and the existing row doesn't yet — lets a later ingest path (e.g.
+// list_topics replay) enrich a row first inserted by webchannel.
 func (db *DB) InsertOrGetMessage(ctx context.Context, m *Message) (inserted bool, err error) {
 	const q = `
-INSERT INTO messages (user_id, space_key, space_name, thread_key, message_key, sender_name, sender_is_me, body, observed_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT (user_id, message_key) DO UPDATE SET message_key = messages.message_key
+INSERT INTO messages (user_id, space_key, space_name, thread_key, message_key, sender_id, sender_name, sender_is_me, body, observed_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+ON CONFLICT (user_id, message_key) DO UPDATE SET
+    sender_id = CASE
+        WHEN messages.sender_id = '' AND EXCLUDED.sender_id <> '' THEN EXCLUDED.sender_id
+        ELSE messages.sender_id
+    END
 RETURNING id, created_at, (xmax = 0) AS inserted`
 	return inserted, db.QueryRow(ctx, q,
 		m.UserID, m.SpaceKey, m.SpaceName, m.ThreadKey, m.MessageKey,
-		m.SenderName, m.SenderIsMe, m.Body, m.ObservedAt,
+		m.SenderID, m.SenderName, m.SenderIsMe, m.Body, m.ObservedAt,
 	).Scan(&m.ID, &m.CreatedAt, &inserted)
 }
 
@@ -60,6 +69,17 @@ type InboxRow struct {
 	Draft   *Draft
 }
 
+// memberJoin resolves sender_name at read time via chat_members.display_name.
+// Shared by every query returning Message rows so stale names on the
+// messages row (written at ingest before the directory was populated)
+// get transparently replaced with whatever the directory now holds.
+const memberJoin = `
+LEFT JOIN chat_members cm
+  ON cm.user_id = m.user_id AND cm.member_id = m.sender_id`
+
+// senderNameExpr is the display-time fallback chain used in SELECT lists.
+const senderNameExpr = `COALESCE(NULLIF(cm.display_name, ''), m.sender_name)`
+
 // RecentInbox returns the most-recent N messages with their latest draft (if any).
 func (db *DB) RecentInbox(ctx context.Context, userID int64, limit int) ([]InboxRow, error) {
 	const q = `
@@ -67,12 +87,14 @@ SELECT
   m.id, m.user_id, m.space_key,
   COALESCE(NULLIF(dir.display_name, ''), m.space_name) AS space_name,
   m.thread_key, m.message_key,
-  m.sender_name, m.sender_is_me, m.body, m.observed_at, m.created_at,
+  m.sender_id,
+  ` + senderNameExpr + ` AS sender_name,
+  m.sender_is_me, m.body, m.observed_at, m.created_at,
   d.id, d.body, d.send_mode, d.status, d.auto_sent, d.confidence, d.reasoning, d.error,
   d.created_at, d.updated_at, d.sent_at
 FROM messages m
 LEFT JOIN spaces_directory dir
-  ON dir.user_id = m.user_id AND dir.space_key = m.space_key
+  ON dir.user_id = m.user_id AND dir.space_key = m.space_key` + memberJoin + `
 LEFT JOIN LATERAL (
   SELECT * FROM drafts WHERE drafts.message_id = m.id ORDER BY id DESC LIMIT 1
 ) d ON TRUE
@@ -96,7 +118,7 @@ LIMIT $2`
 		if err := rows.Scan(
 			&row.Message.ID, &row.Message.UserID, &row.Message.SpaceKey, &row.Message.SpaceName,
 			&row.Message.ThreadKey, &row.Message.MessageKey,
-			&row.Message.SenderName, &row.Message.SenderIsMe, &row.Message.Body,
+			&row.Message.SenderID, &row.Message.SenderName, &row.Message.SenderIsMe, &row.Message.Body,
 			&row.Message.ObservedAt, &row.Message.CreatedAt,
 			&did, &dbody, &dsendMode, &dstatus, &dautosent, &dconf, &dreasoning, &derror,
 			&dcreated, &dupdated, &dsentat,
@@ -141,12 +163,12 @@ func (db *DB) MessageContext(ctx context.Context, userID, messageID int64, aroun
 	// is empty we have no way to group reliably, so we just return the
 	// anchor alone.
 	if anchor.ThreadKey != "" {
-		const qThread = `
-SELECT id, user_id, space_key, space_name, thread_key, message_key,
-       sender_name, sender_is_me, body, observed_at, created_at
-FROM messages
-WHERE user_id = $1 AND space_key = $2 AND thread_key = $3
-ORDER BY observed_at ASC`
+		qThread := `
+SELECT m.id, m.user_id, m.space_key, m.space_name, m.thread_key, m.message_key,
+       m.sender_id, ` + senderNameExpr + `, m.sender_is_me, m.body, m.observed_at, m.created_at
+FROM messages m` + memberJoin + `
+WHERE m.user_id = $1 AND m.space_key = $2 AND m.thread_key = $3
+ORDER BY m.observed_at ASC`
 		rows, err := db.Query(ctx, qThread, userID, anchor.SpaceKey, anchor.ThreadKey)
 		if err != nil {
 			return nil, err
@@ -154,7 +176,7 @@ ORDER BY observed_at ASC`
 		for rows.Next() {
 			var m Message
 			if err := rows.Scan(&m.ID, &m.UserID, &m.SpaceKey, &m.SpaceName, &m.ThreadKey, &m.MessageKey,
-				&m.SenderName, &m.SenderIsMe, &m.Body, &m.ObservedAt, &m.CreatedAt); err != nil {
+				&m.SenderID, &m.SenderName, &m.SenderIsMe, &m.Body, &m.ObservedAt, &m.CreatedAt); err != nil {
 				rows.Close()
 				return nil, err
 			}
@@ -171,14 +193,14 @@ ORDER BY observed_at ASC`
 	if aroundLimit <= 0 {
 		aroundLimit = 20
 	}
-	const qAround = `
-SELECT id, user_id, space_key, space_name, thread_key, message_key,
-       sender_name, sender_is_me, body, observed_at, created_at
-FROM messages
-WHERE user_id = $1 AND space_key = $2
-  AND COALESCE(thread_key, '') <> COALESCE($3, '')
-  AND observed_at BETWEEN ($4::timestamptz - $5::interval) AND ($4::timestamptz + $5::interval)
-ORDER BY ABS(EXTRACT(EPOCH FROM (observed_at - $4::timestamptz)))
+	qAround := `
+SELECT m.id, m.user_id, m.space_key, m.space_name, m.thread_key, m.message_key,
+       m.sender_id, ` + senderNameExpr + `, m.sender_is_me, m.body, m.observed_at, m.created_at
+FROM messages m` + memberJoin + `
+WHERE m.user_id = $1 AND m.space_key = $2
+  AND COALESCE(m.thread_key, '') <> COALESCE($3, '')
+  AND m.observed_at BETWEEN ($4::timestamptz - $5::interval) AND ($4::timestamptz + $5::interval)
+ORDER BY ABS(EXTRACT(EPOCH FROM (m.observed_at - $4::timestamptz)))
 LIMIT $6`
 	interval := fmt.Sprintf("%d seconds", int(aroundWindow.Seconds()))
 	rows, err := db.Query(ctx, qAround, userID, anchor.SpaceKey, anchor.ThreadKey, anchor.ObservedAt, interval, aroundLimit)
@@ -189,7 +211,7 @@ LIMIT $6`
 	for rows.Next() {
 		var m Message
 		if err := rows.Scan(&m.ID, &m.UserID, &m.SpaceKey, &m.SpaceName, &m.ThreadKey, &m.MessageKey,
-			&m.SenderName, &m.SenderIsMe, &m.Body, &m.ObservedAt, &m.CreatedAt); err != nil {
+			&m.SenderID, &m.SenderName, &m.SenderIsMe, &m.Body, &m.ObservedAt, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		out.Around = append(out.Around, m)
@@ -203,14 +225,15 @@ LIMIT $6`
 
 // GetMessage fetches one message by id, scoped to the local user.
 func (db *DB) GetMessage(ctx context.Context, userID, messageID int64) (*Message, error) {
-	const q = `
-SELECT id, user_id, space_key, space_name, thread_key, message_key,
-       sender_name, sender_is_me, body, observed_at, created_at
-FROM messages WHERE id = $1 AND user_id = $2`
+	q := `
+SELECT m.id, m.user_id, m.space_key, m.space_name, m.thread_key, m.message_key,
+       m.sender_id, ` + senderNameExpr + `, m.sender_is_me, m.body, m.observed_at, m.created_at
+FROM messages m` + memberJoin + `
+WHERE m.id = $1 AND m.user_id = $2`
 	var m Message
 	err := db.QueryRow(ctx, q, messageID, userID).Scan(
 		&m.ID, &m.UserID, &m.SpaceKey, &m.SpaceName, &m.ThreadKey, &m.MessageKey,
-		&m.SenderName, &m.SenderIsMe, &m.Body, &m.ObservedAt, &m.CreatedAt,
+		&m.SenderID, &m.SenderName, &m.SenderIsMe, &m.Body, &m.ObservedAt, &m.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -344,9 +367,19 @@ type PendingSend struct {
 }
 
 // ListApprovedPending returns drafts ready to send by the extension.
+//
+// thread_key falls back to message_key when the stored thread_key is empty:
+// in Google Chat every top-level message is its own thread anchored by the
+// message's own key, so replying "in-thread" to a top-level message means
+// using that message's key as the thread anchor. Without this fallback,
+// replies to messages ingested via paths that don't populate thread_key
+// (e.g. sender-search, style sync) would fail with "thread key required"
+// or be forced down the new_topic path (which isn't space-safe).
 func (db *DB) ListApprovedPending(ctx context.Context, userID int64, limit int) ([]PendingSend, error) {
 	const q = `
-SELECT d.id, d.message_id, m.space_key, m.thread_key, d.body, d.send_mode
+SELECT d.id, d.message_id, m.space_key,
+       COALESCE(NULLIF(m.thread_key, ''), m.message_key) AS thread_key,
+       d.body, d.send_mode
 FROM drafts d
 JOIN messages m ON m.id = d.message_id
 WHERE m.user_id = $1 AND d.status = 'approved'
