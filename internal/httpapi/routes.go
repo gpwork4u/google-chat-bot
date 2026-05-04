@@ -17,29 +17,13 @@ func NewRouter(cfg *config.Config, db *store.DB, oauthSvc *oauth.Service, h *hub
 	wsRoutes(mux, db, cfg, h, ing)
 	claudeRoutes(mux, db, cfg, h, ing)
 	debugRoutes(mux, db, cfg, h)
+	// webRoutes must be registered last — it registers the catch-all "/" handler
+	// that serves the React SPA for all unmatched paths.
 	webRoutes(mux)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
-	})
-
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		body := `<!doctype html>
-<html lang="zh-Hant">
-<head><meta charset="utf-8"><title>Google Chat Agent</title></head>
-<body style="font-family:system-ui;max-width:640px;margin:4rem auto;line-height:1.6">
-<h1>Google Chat AI Agent</h1>
-<p>這個服務會接收 extension 傳回的 Google Chat 訊號並管理 draft。</p>
-<p><a href="/app/">前往收件匣</a></p>`
-		if oauthSvc != nil {
-			body += `
-<p><a href="/oauth/start">用 Google 帳號授權</a></p>`
-		}
-		body += `
-</body></html>`
-		_, _ = fmt.Fprint(w, body)
 	})
 
 	if oauthSvc != nil {
