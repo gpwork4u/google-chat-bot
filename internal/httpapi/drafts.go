@@ -36,6 +36,7 @@ func draftsRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.H
 		mux.HandleFunc("POST /api/debug/inject-draft", func(w http.ResponseWriter, r *http.Request) {
 			handleDebugInjectDraft(w, r, db, cfg, h)
 		})
+		registerSeedDraftsRoute(mux, db, cfg, h)
 	}
 }
 
