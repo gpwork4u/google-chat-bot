@@ -1,0 +1,19 @@
+{
+  "name": "google-chat-bot-tests",
+  "version": "1.0.0",
+  "description": "playwright-bdd BDD tests for google-chat-bot",
+  "private": true,
+  "scripts": {
+    "bddgen": "bddgen",
+    "test": "bddgen && playwright test",
+    "test:f001": "bddgen && playwright test --grep @f001",
+    "test:f002": "bddgen && playwright test --grep @f002",
+    "report": "playwright show-report reports/html"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "^10.9.0",
+    "@playwright/test": "^1.45.0",
+    "playwright-bdd": "^7.4.0",
+    "typescript": "^5.5.0"
+  }
+}
