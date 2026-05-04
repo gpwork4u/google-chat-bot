@@ -14,9 +14,9 @@ Before(async ({ page }) => {
   });
 });
 
-After(async ({ page }, testInfo) => {
-  if (testInfo.status !== testInfo.expectedStatus) {
-    const safeTitle = testInfo.title.replace(/[^a-z0-9]/gi, '_');
+After(async ({ page, $testInfo }) => {
+  if ($testInfo.status !== $testInfo.expectedStatus) {
+    const safeTitle = $testInfo.title.replace(/[^a-z0-9]/gi, '_');
     const screenshotPath = path.join(SCREENSHOTS_DIR, `failure-${safeTitle}-${Date.now()}.png`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
   }

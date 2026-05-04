@@ -18,6 +18,24 @@ BASE_URL="${BASE_URL:-http://localhost:3000}"
 REPORT_DIR="test/reports"
 SCREENSHOT_DIR="test/screenshots"
 
+# 偵測 docker-compose / dev 目錄佈局（brownfield 專案常將 compose 放在 repo root）
+if [ -f dev/docker-compose.yml ] || [ -f dev/docker-compose.example.yml ]; then
+  COMPOSE_DIR="dev"
+elif [ -f docker-compose.yml ]; then
+  COMPOSE_DIR="."
+else
+  COMPOSE_DIR=""
+fi
+
+# 偵測 unit test runner（Go 為主、否則 fall back 到 npm）
+if [ -f go.mod ]; then
+  UNIT_TEST_CMD="go test ./..."
+elif [ -f dev/package.json ]; then
+  UNIT_TEST_CMD="cd dev && (npm ci --silent 2>/dev/null || npm install --silent) && npm test"
+else
+  UNIT_TEST_CMD=""
+fi
+
 mkdir -p "$REPORT_DIR" "$SCREENSHOT_DIR"
 
 log() { printf '\n=== %s ===\n' "$*"; }
@@ -25,10 +43,11 @@ fail() { echo "❌ $*" >&2; exit 1; }
 
 # ---- 1. 啟動 docker（除非略過）----
 if [ "${SKIP_DOCKER:-0}" != "1" ]; then
-  log "Starting docker compose"
-  ( cd dev && \
-    [ -f docker-compose.yml ] || cp docker-compose.example.yml docker-compose.yml; \
-    [ -f .env ] || cp .env.example .env; \
+  [ -n "$COMPOSE_DIR" ] || fail "找不到 docker-compose 設定（dev/ 或 root）"
+  log "Starting docker compose ($COMPOSE_DIR)"
+  ( cd "$COMPOSE_DIR" && \
+    { [ -f docker-compose.yml ] || cp docker-compose.example.yml docker-compose.yml; } && \
+    { [ -f .env ] || [ ! -f .env.example ] || cp .env.example .env; } && \
     docker compose up -d --build )
 
   if [ "${SKIP_HEALTH:-0}" != "1" ]; then
@@ -45,17 +64,20 @@ if [ "${SKIP_DOCKER:-0}" != "1" ]; then
 fi
 
 cleanup() {
-  if [ "${SKIP_DOCKER:-0}" != "1" ]; then
+  if [ "${SKIP_DOCKER:-0}" != "1" ] && [ -n "$COMPOSE_DIR" ]; then
     log "Stopping docker compose"
-    ( cd dev && docker compose down ) || true
+    ( cd "$COMPOSE_DIR" && docker compose down ) || true
   fi
 }
 trap cleanup EXIT
 
 # ---- 2. Unit tests ----
-log "Unit tests"
-( cd dev && npm ci --silent 2>/dev/null || npm install --silent )
-( cd dev && npm test ) || fail "Unit tests failed"
+if [ -n "$UNIT_TEST_CMD" ]; then
+  log "Unit tests ($UNIT_TEST_CMD)"
+  sh -c "$UNIT_TEST_CMD" || fail "Unit tests failed"
+else
+  log "No unit tests detected, skipping"
+fi
 
 # ---- 3. 同步 .feature 到 test/features/ ----
 log "Sync feature files"
