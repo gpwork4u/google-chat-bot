@@ -24,22 +24,10 @@ func draftsRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.H
 		handleListDraftsUI(w, r, db, cfg)
 	})
 
-	// POST /api/drafts/{id}/approve — approve (optionally with edited content)
-	// (already registered in extension.go as handleDraftAction; we add a
-	// content-aware variant here that also accepts {"content":"..."})
-	mux.HandleFunc("POST /api/ui/drafts/{id}/approve", func(w http.ResponseWriter, r *http.Request) {
-		handleUIApprove(w, r, db, cfg, h)
-	})
-
-	// POST /api/ui/drafts/{id}/reject — reject
-	mux.HandleFunc("POST /api/ui/drafts/{id}/reject", func(w http.ResponseWriter, r *http.Request) {
-		handleUIReject(w, r, db, h)
-	})
-
-	// PATCH /api/ui/drafts/{id} — save edits without sending
-	mux.HandleFunc("PATCH /api/ui/drafts/{id}", func(w http.ResponseWriter, r *http.Request) {
-		handleUIPatchDraft(w, r, db, h)
-	})
+	// NOTE: POST /api/drafts/{id}/approve, POST /api/drafts/{id}/reject, and
+	// PATCH /api/drafts/{id} are registered in extension.go (handleDraftAction /
+	// handlePatchDraft). Those handlers now also accept the UI payload
+	// {"content":"..."} for approve, so no duplicate routes are needed here.
 
 	// POST /api/debug/inject-draft — dev-only endpoint for QA e2e tests.
 	// Creates a fake pending draft so tests can exercise the approval flow
@@ -73,92 +61,6 @@ func handleListDraftsUI(w http.ResponseWriter, r *http.Request, db *store.DB, cf
 		drafts = []store.DraftForUI{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"drafts": drafts})
-}
-
-type uiApproveReq struct {
-	Content string `json:"content"`
-}
-
-func handleUIApprove(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
-	idStr := r.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "bad id")
-		return
-	}
-
-	var req uiApproveReq
-	if r.ContentLength > 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-
-	// If caller provided edited content, persist it first.
-	if req.Content != "" {
-		if err := db.UpdateDraftBody(r.Context(), id, req.Content); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
-
-	if err := db.UpdateDraftStatus(r.Context(), id, "approved", ""); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if h != nil {
-		h.InboxChanged()
-		pushPendingForUser(r.Context(), db, h)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-func handleUIReject(w http.ResponseWriter, r *http.Request, db *store.DB, h *hub.Hub) {
-	idStr := r.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "bad id")
-		return
-	}
-	if err := db.UpdateDraftStatus(r.Context(), id, "rejected", ""); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if h != nil {
-		h.InboxChanged()
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-type uiPatchDraftReq struct {
-	Content string `json:"content"`
-}
-
-func handleUIPatchDraft(w http.ResponseWriter, r *http.Request, db *store.DB, h *hub.Hub) {
-	idStr := r.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "bad id")
-		return
-	}
-	var req uiPatchDraftReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if req.Content == "" {
-		writeErr(w, http.StatusBadRequest, "content required")
-		return
-	}
-	if err := db.UpdateDraftBody(r.Context(), id, req.Content); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if h != nil {
-		h.InboxChanged()
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // handleDebugInjectDraft creates a synthetic pending draft for e2e testing.

@@ -295,7 +295,19 @@ RETURNING id, created_at, updated_at`
 		Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
 }
 
+// allowedDraftStatuses must match the CHECK constraint in migration 0002_extension_tables.sql.
+var allowedDraftStatuses = map[string]bool{
+	"pending":  true,
+	"approved": true,
+	"rejected": true,
+	"sent":     true,
+	"failed":   true,
+}
+
 func (db *DB) UpdateDraftStatus(ctx context.Context, draftID int64, newStatus string, errText string) error {
+	if !allowedDraftStatuses[newStatus] {
+		return fmt.Errorf("invalid draft status: %q", newStatus)
+	}
 	const q = `
 UPDATE drafts SET
   status = $2,
