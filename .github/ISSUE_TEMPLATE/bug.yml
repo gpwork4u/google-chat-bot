@@ -1,0 +1,53 @@
+name: "🐛 Bug Report"
+description: "回報一個 bug"
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug 描述
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 重現步驟
+      placeholder: |
+        1. 步驟 1
+        2. 步驟 2
+        3. 步驟 3
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 預期行為
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 實際行為
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 嚴重程度
+      options:
+        - Critical
+        - High
+        - Medium
+        - Low
+    validations:
+      required: true
+  - type: input
+    id: failed-test
+    attributes:
+      label: 失敗的測試
+      placeholder: "test case name or file path"
+  - type: input
+    id: feature-ref
+    attributes:
+      label: 相關 Feature
+      placeholder: "#issue_number"

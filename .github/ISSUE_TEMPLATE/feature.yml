@@ -1,0 +1,63 @@
+name: "📝 Feature"
+description: "定義一個功能需求"
+labels: ["feature"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 功能描述
+      placeholder: 描述這個功能要做什麼
+    validations:
+      required: true
+  - type: textarea
+    id: user-story
+    attributes:
+      label: 使用者故事
+      value: |
+        As a [角色],
+        I want [功能],
+        so that [價值]
+    validations:
+      required: true
+  - type: textarea
+    id: api-contract
+    attributes:
+      label: API Contract
+      placeholder: |
+        ### `POST /api/v1/resource`
+        **Request Body**:
+        ```json
+        {}
+        ```
+        **Response 200**:
+        ```json
+        {}
+        ```
+        **Error Responses**:
+        | Status | Code | 條件 |
+        |--------|------|------|
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: 接受標準 & 測試場景
+      placeholder: |
+        ### Happy Path
+        - [ ] AC-1: 描述
+        ### Error Handling
+        - [ ] AC-2: 描述
+        ### Edge Cases
+        - [ ] AC-3: 描述
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 優先級
+      options:
+        - P0 - Must Have
+        - P1 - Should Have
+        - P2 - Nice to Have
+    validations:
+      required: true
