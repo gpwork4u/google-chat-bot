@@ -28,13 +28,52 @@ type Hub struct {
 	mu  sync.RWMutex
 	ui  map[chan UIEvent]struct{}
 	ext map[chan ExtEvent]struct{}
+
+	// dispatchedDrafts tracks draft IDs that have already been pushed to
+	// some extension WS client. Guards against double-send when the user
+	// has multiple Chat tabs open (each tab's content.js connects its own
+	// WS and would otherwise each dispatch the same draft to create_message).
+	// Cleared in ReleaseDraft once the extension reports success/failure.
+	// In-memory only; cleared on restart (which is fine — new approved
+	// drafts will be re-pushed after a reconnect).
+	dispatchedMu sync.Mutex
+	dispatched   map[int64]struct{}
 }
 
 func New() *Hub {
 	return &Hub{
-		ui:  make(map[chan UIEvent]struct{}),
-		ext: make(map[chan ExtEvent]struct{}),
+		ui:         make(map[chan UIEvent]struct{}),
+		ext:        make(map[chan ExtEvent]struct{}),
+		dispatched: make(map[int64]struct{}),
 	}
+}
+
+// ClaimDraft returns true if this is the first caller to claim the given
+// draftID since the last ReleaseDraft. Use this to guard pending-broadcast
+// so the draft gets pushed to exactly one extension tab even when the user
+// has multiple Chat windows open sharing the same backend.
+func (h *Hub) ClaimDraft(draftID int64) bool {
+	if draftID <= 0 {
+		return true
+	}
+	h.dispatchedMu.Lock()
+	defer h.dispatchedMu.Unlock()
+	if _, ok := h.dispatched[draftID]; ok {
+		return false
+	}
+	h.dispatched[draftID] = struct{}{}
+	return true
+}
+
+// ReleaseDraft lets a draft be pushed again. Call when the extension reports
+// a terminal state (sent / failed) so retries after failures can still work.
+func (h *Hub) ReleaseDraft(draftID int64) {
+	if draftID <= 0 {
+		return
+	}
+	h.dispatchedMu.Lock()
+	delete(h.dispatched, draftID)
+	h.dispatchedMu.Unlock()
 }
 
 // SubscribeUI returns a buffered channel and an unsubscribe func. The channel
