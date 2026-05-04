@@ -1,0 +1,57 @@
+/*
+ * Design Tokens — Entry Point
+ *
+ * 用法：將此檔案內容完整貼入 web/src/index.css，放在 @import "tailwindcss" 之後。
+ * 或者，逐一 @import 各 token 檔案（如 Vite 支援）。
+ *
+ * 完整的 web/src/index.css 應如下：
+ * ─────────────────────────────────────────
+ *   @import "tailwindcss";
+ *
+ *   @theme {
+ *     /* --- 從 colors.css @theme {} 複製 --- *\/
+ *     /* --- 從 typography.css @theme {} 複製 --- *\/
+ *     /* --- 從 spacing.css @theme {} 複製 --- *\/
+ *   }
+ *
+ *   .dark {
+ *     /* --- 從 colors.css .dark {} 複製 --- *\/
+ *   }
+ *
+ *   /* --- 從 spacing.css @media (prefers-reduced-motion) 複製 --- *\/
+ * ─────────────────────────────────────────
+ *
+ * 注意：Tailwind v4 的 @theme {} 內不能 @import，必須手動合併。
+ */
+
+/*
+ * Token 檔案清單：
+ *
+ * design/tokens/colors.css
+ *   - Neutrals: --color-neutral-{0..950}
+ *   - Primary (Indigo): --color-primary-{50..900}
+ *   - Semantic Surface: --color-surface-{default/subtle/muted/overlay}
+ *   - Semantic Text: --color-text-{default/secondary/muted/placeholder/inverse/link}
+ *   - Semantic Border: --color-border-{default/strong/focus}
+ *   - Status: --color-{success/warning/error/info}-{subtle/default/strong}
+ *   - Category Badge: --color-category-{chat/work/eng/skip}-{bg/text/border}
+ *   - .dark overrides
+ *
+ * design/tokens/typography.css
+ *   - Font Families: --font-{sans/mono}
+ *   - Font Sizes: --text-{2xs/xs/sm/base/md/lg/xl/2xl}（含 --line-height）
+ *   - Font Weights: --font-weight-{normal/medium/semibold}
+ *   - Letter Spacing: --tracking-{tighter/tight/normal/wide/wider}
+ *   - Line Heights: --leading-{tight/snug/normal/relaxed/loose}
+ *
+ * design/tokens/spacing.css
+ *   - Base: --spacing (4px)
+ *   - Named: --spacing-{px/0-5/1..24}
+ *   - Radius: --radius-{none/xs/sm/md/lg/xl/2xl/full}
+ *   - Shadow: --shadow-{xs/sm/md/lg/card/elevated/focus}
+ *   - Z-index: --z-{base/raised/dropdown/sticky/overlay/modal/toast/tooltip}
+ *   - Duration: --duration-{instant/fast/normal/slow}
+ *   - Easing: --ease-{default/in/out/spring}
+ *   - Animations: --animate-{fade-in/slide-up/slide-in} + @keyframes
+ *   - @media prefers-reduced-motion
+ */
