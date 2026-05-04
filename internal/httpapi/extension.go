@@ -465,12 +465,21 @@ func handleDraftAction(w http.ResponseWriter, r *http.Request, db *store.DB, new
 		return
 	}
 	if newStatus == "approved" {
+		// Accept both extension payload {send_mode} and UI payload {content, send_mode}.
 		var req struct {
+			Content  string `json:"content"`
 			SendMode string `json:"send_mode"`
 		}
 		if r.Body != nil && r.ContentLength != 0 {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				writeErr(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+		// If UI sent edited content, persist it before approving.
+		if req.Content != "" {
+			if err := db.UpdateDraftBody(r.Context(), id, req.Content); err != nil {
+				writeErr(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 		}
