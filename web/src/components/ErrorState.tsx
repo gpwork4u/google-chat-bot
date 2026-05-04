@@ -8,6 +8,7 @@ export default function ErrorState({ onRetry }: ErrorStateProps) {
   return (
     <div
       role="alert"
+      data-testid="error-state"
       className="flex flex-col items-center justify-center py-20 text-center"
     >
       <AlertTriangle
