@@ -29,6 +29,15 @@ func claudeRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.H
 	mux.HandleFunc("GET /api/claude/style-profile", func(w http.ResponseWriter, r *http.Request) {
 		handleStyleProfile(w, r, db, cfg)
 	})
+	mux.HandleFunc("GET /api/claude/profile", func(w http.ResponseWriter, r *http.Request) {
+		handleProfileGet(w, r, db, cfg)
+	})
+	mux.HandleFunc("PUT /api/claude/profile", func(w http.ResponseWriter, r *http.Request) {
+		handleProfilePut(w, r, db, cfg)
+	})
+	mux.HandleFunc("DELETE /api/claude/profile", func(w http.ResponseWriter, r *http.Request) {
+		handleProfileDelete(w, r, db, cfg)
+	})
 }
 
 func handleClaudePending(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, ing Ingestor) {
@@ -150,6 +159,9 @@ func handleClaudeReply(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 		return
 	}
 	if h != nil {
+		// If the skill re-POSTs to update an already-dispatched draft,
+		// clear the single-dispatch claim so the updated body gets pushed.
+		h.ReleaseDraft(draftID)
 		h.InboxChanged()
 		if status == "approved" {
 			pushPendingForClaude(ctx, db, h, user.ID)
@@ -193,6 +205,114 @@ func handleStyleProfile(w http.ResponseWriter, r *http.Request, db *store.DB, cf
 	writeJSON(w, http.StatusOK, profile)
 }
 
+// handleProfileGet returns the user's curated personal facts. By default
+// `secret` facts are filtered out — the skill must not see them. Pass
+// `?include_secret=1` (only served locally anyway) to dump everything for
+// user-side management tooling.
+//
+// Optional `?key=<k>` returns a single fact, or 404.
+func handleProfileGet(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+	ctx := r.Context()
+	user, err := requireLocalUser(ctx, db, cfg)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	key := strings.TrimSpace(r.URL.Query().Get("key"))
+	if key != "" {
+		fact, err := db.GetProfileFact(ctx, user.ID, key)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if fact == nil || fact.Visibility == "secret" {
+			writeErr(w, http.StatusNotFound, "fact not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, fact)
+		return
+	}
+	includeSecret := false
+	if s := strings.ToLower(r.URL.Query().Get("include_secret")); s == "1" || s == "true" {
+		includeSecret = true
+	}
+	facts, err := db.ListProfileFacts(ctx, user.ID, includeSecret)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"facts": facts,
+	})
+}
+
+type profilePutReq struct {
+	Key        string `json:"key"`
+	Value      string `json:"value"`
+	Visibility string `json:"visibility"`
+	Note       string `json:"note"`
+}
+
+func handleProfilePut(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+	var req profilePutReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Key = strings.TrimSpace(req.Key)
+	req.Value = strings.TrimSpace(req.Value)
+	req.Visibility = strings.ToLower(strings.TrimSpace(req.Visibility))
+	if req.Key == "" {
+		writeErr(w, http.StatusBadRequest, "key required")
+		return
+	}
+	if req.Value == "" {
+		writeErr(w, http.StatusBadRequest, "value required")
+		return
+	}
+	switch req.Visibility {
+	case "public", "private", "secret":
+	default:
+		writeErr(w, http.StatusBadRequest, "visibility must be public|private|secret")
+		return
+	}
+	ctx := r.Context()
+	user, err := requireLocalUser(ctx, db, cfg)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if err := db.UpsertProfileFact(ctx, user.ID, store.ProfileFact{
+		Key:        req.Key,
+		Value:      req.Value,
+		Visibility: req.Visibility,
+		Note:       req.Note,
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "key": req.Key})
+}
+
+func handleProfileDelete(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+	key := strings.TrimSpace(r.URL.Query().Get("key"))
+	if key == "" {
+		writeErr(w, http.StatusBadRequest, "key required")
+		return
+	}
+	ctx := r.Context()
+	user, err := requireLocalUser(ctx, db, cfg)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if err := db.DeleteProfileFact(ctx, user.ID, key); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // pushPendingForClaude is a thin wrapper that broadcasts the current
 // approved-pending queue to extensions, so the draft the agent just
 // submitted hits the wire immediately.
@@ -202,6 +322,9 @@ func pushPendingForClaude(ctx context.Context, db *store.DB, h *hub.Hub, userID 
 		return
 	}
 	for _, item := range pending {
+		if !h.ClaimDraft(item.DraftID) {
+			continue
+		}
 		h.Pending(item)
 	}
 }

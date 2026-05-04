@@ -82,7 +82,7 @@ make dev
 用 psql 驗證：
 
 ```bash
-psql postgres://chatbot:chatbot@localhost:5432/chatbot -c \
+psql postgres://chatbot:chatbot@localhost:2345/chatbot -c \
   "SELECT id, email, name, length(access_token) AS ct_bytes, token_expiry FROM users;"
 ```
 

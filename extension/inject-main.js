@@ -14,7 +14,10 @@
     /\/DynamiteWebUi\/data\//,   // batchexecute RPCs (browse spaces etc.)
     /\/batchexecute/,            // catch absolute-path variants too
   ];
-  const MAX_BODY = 50000;
+  // Cap per-request capture size. 500KB covers the larger bulk-directory
+  // batchexecute RPCs (UIgx0 member mapping, jfcZG space list) that return
+  // well past 50KB when the user's org has many rooms / teammates.
+  const MAX_BODY = 500000;
   const CREATE_TOPIC_PATH = /\/api\/create_topic(?:\?|$)/;
   const CREATE_MESSAGE_PATH = /\/api\/create_message(?:\?|$)/;
   const API_COUNTER_RE = /[?&]c=(\d+)/;
@@ -32,8 +35,31 @@
     requestHeaders: null,
     lastCreateTopicTemplate: null,
     lastCreateMessageTemplate: null,
-    lastObservedCreateTopicSpaceRef: null,
+    // Map of spaceID → captured spaceRef structure. We key by spaceID so that
+    // sends targeting a specific space never accidentally reuse a ref from a
+    // different space (that caused replies to land in the wrong conversation).
+    spaceRefsByID: Object.create(null),
   };
+
+  function spaceIDFromRef(ref) {
+    if (!Array.isArray(ref)) return '';
+    if (typeof ref?.[0]?.[0] === 'string' && ref[0][0]) return ref[0][0];
+    if (typeof ref?.[2]?.[0] === 'string' && ref[2][0]) return ref[2][0];
+    return '';
+  }
+
+  function spaceIDFromKey(spaceKey) {
+    const raw = String(spaceKey || '').trim();
+    if (!raw) return '';
+    const parts = raw.split(':');
+    return parts.length > 1 ? parts.slice(1).join(':') : raw;
+  }
+
+  function rememberSpaceRef(ref) {
+    const id = spaceIDFromRef(ref);
+    if (!id) return;
+    state.spaceRefsByID[id] = cloneJSON(ref);
+  }
 
   // Resolvers waiting for the SPA to send its first authenticated /api/
   // request so we can learn x-framework-xsrf-token. Used by sendGetGroup
@@ -227,7 +253,7 @@
 
     if (CREATE_TOPIC_PATH.test(url)) {
       if (Array.isArray(parsed[4])) {
-        state.lastObservedCreateTopicSpaceRef = cloneJSON(parsed[4]);
+        rememberSpaceRef(parsed[4]);
       }
       state.lastCreateTopicTemplate = cloneJSON(parsed);
       emitDebug('main_template_updated', {
@@ -239,7 +265,7 @@
 
     if (CREATE_MESSAGE_PATH.test(url)) {
       if (Array.isArray(parsed[0]?.[3]?.[2])) {
-        state.lastObservedCreateTopicSpaceRef = cloneJSON(parsed[0][3][2]);
+        rememberSpaceRef(parsed[0][3][2]);
       }
       state.lastCreateMessageTemplate = cloneJSON(parsed);
       emitDebug('main_template_updated', {
@@ -265,45 +291,34 @@
   }
 
   function buildSpaceRef(spaceKey, providedSpaceRef) {
+    const targetID = spaceIDFromKey(spaceKey);
+
+    // 1. Caller supplied a ref — only trust it if it matches the target space
+    //    (or the caller didn't give us a spaceKey to verify against).
     if (Array.isArray(providedSpaceRef)) {
-      return cloneJSON(providedSpaceRef);
+      const providedID = spaceIDFromRef(providedSpaceRef);
+      if (!targetID || !providedID || providedID === targetID) {
+        return cloneJSON(providedSpaceRef);
+      }
     }
 
-    if (Array.isArray(state.lastObservedCreateTopicSpaceRef)) {
-      return cloneJSON(state.lastObservedCreateTopicSpaceRef);
+    // 2. Reuse a previously observed ref for this exact space, if we have one.
+    if (targetID && Array.isArray(state.spaceRefsByID[targetID])) {
+      return cloneJSON(state.spaceRefsByID[targetID]);
     }
 
-    const raw = String(spaceKey || '').trim();
-    if (!raw) return null;
-    const parts = raw.split(':');
-    const spaceId = parts.length > 1 ? parts.slice(1).join(':') : raw;
-    if (!spaceId) return null;
-    return [[spaceId]];
+    // 3. Synthesize a minimal ref from the spaceKey. Never fall back to a ref
+    //    from a different space (that sent replies to the wrong conversation).
+    if (!targetID) return null;
+    return [[targetID]];
   }
 
   function extractSpaceID(spaceKey, providedSpaceRef) {
-    if (Array.isArray(providedSpaceRef)) {
-      if (typeof providedSpaceRef?.[0]?.[0] === 'string' && providedSpaceRef[0][0]) {
-        return providedSpaceRef[0][0];
-      }
-      if (typeof providedSpaceRef?.[2]?.[0] === 'string' && providedSpaceRef[2][0]) {
-        return providedSpaceRef[2][0];
-      }
-    }
-    if (Array.isArray(state.lastObservedCreateTopicSpaceRef)) {
-      const ref = state.lastObservedCreateTopicSpaceRef;
-      if (typeof ref?.[0]?.[0] === 'string' && ref[0][0]) {
-        return ref[0][0];
-      }
-      if (typeof ref?.[2]?.[0] === 'string' && ref[2][0]) {
-        return ref[2][0];
-      }
-    }
-
-    const raw = String(spaceKey || '').trim();
-    if (!raw) return '';
-    const parts = raw.split(':');
-    return parts.length > 1 ? parts.slice(1).join(':') : raw;
+    const targetID = spaceIDFromKey(spaceKey);
+    if (targetID) return targetID;
+    const fromProvided = spaceIDFromRef(providedSpaceRef);
+    if (fromProvided) return fromProvided;
+    return '';
   }
 
   function buildCreateTopicPayload(detail) {

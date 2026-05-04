@@ -19,6 +19,64 @@ func debugRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.Hu
 	mux.HandleFunc("POST /debug/simulate_message", func(w http.ResponseWriter, r *http.Request) {
 		handleSimulateMessage(w, r, db, cfg, h)
 	})
+	mux.HandleFunc("GET /debug/raw_events", func(w http.ResponseWriter, r *http.Request) {
+		handleRawEventsPeek(w, r, db)
+	})
+}
+
+// handleRawEventsPeek returns the newest raw_events matching ?url_like=…
+// with full payload JSON (respText, reqBody, etc.) so we can reverse-
+// engineer new RPC shapes. Query params:
+//
+//	url_like   SQL LIKE pattern; defaults to %
+//	limit      max rows to return, 1..20, default 3
+//	max_bytes  truncate each payload to this many bytes to keep responses
+//	           manageable; default 16384 (=16KB), max 262144 (=256KB)
+func handleRawEventsPeek(w http.ResponseWriter, r *http.Request, db *store.DB) {
+	q := r.URL.Query()
+	urlLike := q.Get("url_like")
+	if urlLike == "" {
+		urlLike = "%"
+	} else if !contains(urlLike, "%") {
+		urlLike = "%" + urlLike + "%"
+	}
+	limit := 3
+	if n, err := parseInt(q.Get("limit")); err == nil && n >= 1 && n <= 20 {
+		limit = n
+	}
+	maxBytes := 16384
+	if n, err := parseInt(q.Get("max_bytes")); err == nil && n >= 256 && n <= 262144 {
+		maxBytes = n
+	}
+	rows, err := db.PeekRawEvents(r.Context(), urlLike, limit, maxBytes)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"count": len(rows), "rows": rows})
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
+func parseInt(s string) (int, error) {
+	if s == "" {
+		return 0, http.ErrNoCookie
+	}
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, http.ErrNoCookie
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n, nil
 }
 
 type simulateMessageReq struct {
