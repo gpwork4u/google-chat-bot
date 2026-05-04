@@ -8,3 +8,4 @@ node_modules/
 web/dist/
 session.json
 chat_session.json
+.claude/scheduled_tasks.lock
