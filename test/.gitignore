@@ -1,0 +1,7 @@
+node_modules/
+screenshots/
+test-results/
+reports/html/
+reports/cucumber-report.json
+reports/cucumber-report.html
+.features-gen/
