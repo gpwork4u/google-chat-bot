@@ -313,6 +313,23 @@ WHERE id = $1`
 	return nil
 }
 
+// UpdateDraftBody overwrites the draft body (for UI-side edits before approve).
+func (db *DB) UpdateDraftBody(ctx context.Context, draftID int64, body string) error {
+	const q = `
+UPDATE drafts SET
+  body = $2,
+  updated_at = NOW()
+WHERE id = $1`
+	ct, err := db.Exec(ctx, q, draftID, body)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return errors.New("draft not found")
+	}
+	return nil
+}
+
 func (db *DB) UpdateDraftSendMode(ctx context.Context, draftID int64, sendMode string) error {
 	const q = `
 UPDATE drafts SET
