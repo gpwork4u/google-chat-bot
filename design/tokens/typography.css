@@ -1,0 +1,63 @@
+/*
+ * Design Tokens — Typography
+ * 用法：複製 @theme {} 區塊直接貼入 web/src/index.css
+ *
+ * 選型：Inter（Variable font，免費、桌面顯示清晰）
+ * 字型引入：在 index.html 加上 Google Fonts CDN 或本地 @font-face
+ *   <link rel="preconnect" href="https://fonts.googleapis.com">
+ *   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+ *
+ * 風格：dense / 資訊優先，最多 3 種字重（400 / 500 / 600），清晰的 size scale
+ */
+
+@theme {
+  /* ── Font Families ─────────────────────────────────────── */
+  --font-sans: "Inter", "InterVariable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, "Cascadia Code", monospace;
+
+  /* ── Font Sizes（搭配預設 line-height） ────────────────── */
+  /* 格式：--text-{size}: {font-size} / {line-height} */
+  --text-2xs:         0.6875rem;    /* 11px — 超密度 label（badge 內文） */
+  --text-2xs--line-height: 1.4;
+
+  --text-xs:          0.75rem;      /* 12px — 輔助文字、timestamp */
+  --text-xs--line-height: 1.4;
+
+  --text-sm:          0.8125rem;    /* 13px — 主要內文（dense list 項目） */
+  --text-sm--line-height: 1.5;
+
+  --text-base:        0.875rem;     /* 14px — 標準 body text */
+  --text-base--line-height: 1.57;
+
+  --text-md:          1rem;         /* 16px — 段落 / 卡片標題 */
+  --text-md--line-height: 1.5;
+
+  --text-lg:          1.125rem;     /* 18px — 頁面標題 h2 */
+  --text-lg--line-height: 1.4;
+
+  --text-xl:          1.25rem;      /* 20px — 頁面主標題 h1 */
+  --text-xl--line-height: 1.35;
+
+  --text-2xl:         1.5rem;       /* 24px — 大標題（謹慎使用） */
+  --text-2xl--line-height: 1.3;
+
+  /* ── Font Weights ──────────────────────────────────────── */
+  --font-weight-normal:   400;    /* body text */
+  --font-weight-medium:   500;    /* label、button、nav link */
+  --font-weight-semibold: 600;    /* 卡片標題、section header */
+  /* 刻意不定義 bold(700)，保持視覺密度一致 */
+
+  /* ── Letter Spacing ────────────────────────────────────── */
+  --tracking-tighter: -0.03em;   /* 大標題收緊 */
+  --tracking-tight:   -0.01em;   /* 預設一般標題 */
+  --tracking-normal:  0em;       /* body text */
+  --tracking-wide:    0.02em;    /* ALL CAPS badge 文字 */
+  --tracking-wider:   0.04em;
+
+  /* ── Line Heights（獨立用，非 text-* 附屬版本） ─────────── */
+  --leading-tight:   1.25;
+  --leading-snug:    1.375;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.625;
+  --leading-loose:   2;
+}
