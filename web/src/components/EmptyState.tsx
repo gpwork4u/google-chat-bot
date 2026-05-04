@@ -4,6 +4,7 @@ export default function EmptyState() {
   return (
     <div
       role="status"
+      data-testid="empty-state"
       aria-label="沒有待處理的草稿"
       className="flex flex-col items-center justify-center py-20 text-center"
     >
