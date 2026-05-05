@@ -13,6 +13,7 @@
   "devDependencies": {
     "@cucumber/cucumber": "^10.9.0",
     "@playwright/test": "^1.45.0",
+    "@types/node": "^25.6.0",
     "playwright-bdd": "^7.4.0",
     "typescript": "^5.5.0"
   }
