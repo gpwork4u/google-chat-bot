@@ -12,6 +12,7 @@
 
 import { expect } from '@playwright/test';
 import { Given, When, Then } from '../support/fixtures';
+import { TESTIDS, API_PATHS } from '../../web/src/contracts';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:8080';
 
@@ -85,7 +86,7 @@ Then('URL 變成 {string}', async ({ page }, path: string) => {
 
 Then('主要內容區渲染 Approvals placeholder 或實際內容', async ({ page }) => {
   // /approvals 應有任何非空內容（placeholder 或真實卡片皆可）
-  const main = page.locator('main, [data-testid="approvals-page"], #approvals-page').first();
+  const main = page.locator(`main, [data-testid="${TESTIDS.APPROVALS_PAGE}"], #approvals-page`).first();
   await expect(main).not.toBeEmpty();
 });
 
@@ -129,14 +130,14 @@ Given('backend 接受 \\/ws\\/ui 連線', async ({ request }) => {
 When('app 載入完成', async ({ page }) => {
   await page.goto(`${BASE_URL}/`);
   // 等待 WS 連線狀態 badge 出現（最多 5 秒）
-  await page.waitForSelector('[data-testid="connection-badge"], [aria-label*="連線"], [aria-label*="connected"]', {
+  await page.waitForSelector(`[data-testid="${TESTIDS.CONNECTION_BADGE}"], [aria-label*="連線"], [aria-label*="connected"]`, {
     timeout: 5000,
   });
 });
 
 Then('頂部 nav 顯示 connection badge 為「已連線」', async ({ page }) => {
   // badge 可能顯示「已連線」、「Connected」或 aria-label
-  const badge = page.locator('[data-testid="connection-badge"]').first();
+  const badge = page.getByTestId(TESTIDS.CONNECTION_BADGE).first();
   await expect(badge).toBeVisible();
   const text = await badge.innerText();
   expect(text).toMatch(/已連線|connected|online/i);
@@ -165,7 +166,7 @@ When('backend 中斷', async ({ page, context }) => {
 });
 
 Then('connection badge 變成「離線」於 5 秒內', async ({ page }) => {
-  const badge = page.locator('[data-testid="connection-badge"]').first();
+  const badge = page.getByTestId(TESTIDS.CONNECTION_BADGE).first();
   await expect(badge).toHaveText(/離線|disconnected|offline/i, { timeout: 5000 });
 });
 
@@ -176,7 +177,7 @@ Then('connection badge 變成「離線」於 5 秒內', async ({ page }) => {
 Given('backend 目前 auto_mode=false', async ({ request }) => {
   // 重置 auto_mode 為 false（backend 用 POST）
   try {
-    const res = await request.post(`${BASE_URL}/api/settings/auto-mode`, {
+    const res = await request.post(`${BASE_URL}${API_PATHS.SETTINGS}`, {
       data: { auto_mode: false },
     });
     // 接受 200 或 404（尚未實作時）
@@ -188,11 +189,11 @@ Given('backend 目前 auto_mode=false', async ({ request }) => {
 
 When('使用者點擊頂部 nav 的 auto-mode toggle', async ({ page }) => {
   await ensureAppLoaded(page);
-  const toggle = page.locator('[data-testid="auto-mode-toggle"], [aria-label*="auto"], [aria-label*="Auto"]').first();
+  const toggle = page.getByTestId(TESTIDS.AUTO_MODE_TOGGLE).first();
   // 在點擊前設定 request 攔截，記錄 PATCH /api/settings/auto-mode 的呼叫
   const autoModeRequestPromise = page.waitForRequest(
     (req) =>
-      req.url().includes('/api/settings/auto-mode') &&
+      req.url().includes(API_PATHS.SETTINGS) &&
       req.method() === 'PATCH',
     { timeout: 5000 }
   ).catch(() => null); // endpoint 未實作時不 fail
@@ -220,13 +221,13 @@ Then('發送 PATCH \\/api\\/settings\\/auto-mode 或同等 endpoint', async ({ p
   } else {
     // endpoint 未實作時，容許此 step 通過（Wave 0 並行開發）
     // 改為確認 toggle UI 狀態有變化
-    const toggle = page.locator('[data-testid="auto-mode-toggle"]').first();
+    const toggle = page.getByTestId(TESTIDS.AUTO_MODE_TOGGLE).first();
     await expect(toggle).toBeVisible();
   }
 });
 
 Then('toggle 視覺切換為 on', async ({ page }) => {
-  const toggle = page.locator('[data-testid="auto-mode-toggle"]').first();
+  const toggle = page.getByTestId(TESTIDS.AUTO_MODE_TOGGLE).first();
   // 確認 toggle 切換為 on 狀態（aria-checked 或 data attribute）
   const isChecked = await toggle.getAttribute('aria-checked');
   const dataState = await toggle.getAttribute('data-state');
