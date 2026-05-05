@@ -1,5 +1,5 @@
 .PHONY: infra-up infra-down dev build test tidy clean \
-        web-install web-dev web-build web-clean
+        web-install web-dev web-build web-clean contracts
 
 # --- Infrastructure ---
 
@@ -47,3 +47,10 @@ web-clean:
 	rm -rf internal/httpapi/web/dist/*
 	touch internal/httpapi/web/dist/.gitkeep
 	cp internal/httpapi/web/dist/.gitkeep /dev/null || true
+
+# --- Contracts Codegen ---
+
+# Regenerate web/src/contracts.generated.ts from Go structs in internal/httpapi/types.go.
+# Requires tygo: go install github.com/gzuidhof/tygo@latest
+contracts:
+	tygo generate
