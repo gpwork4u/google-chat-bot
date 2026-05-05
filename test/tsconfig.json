@@ -7,12 +7,12 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": "./dist",
-    "rootDir": ".",
     "baseUrl": ".",
     "paths": {
       "@support/*": ["support/*"]
-    }
+    },
+    "types": ["node"]
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "../web/src/contracts.ts", "../web/src/contracts.generated.ts"],
   "exclude": ["node_modules", "dist", ".bdd"]
 }

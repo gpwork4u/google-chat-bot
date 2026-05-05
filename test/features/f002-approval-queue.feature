@@ -50,7 +50,7 @@ Feature: F-002 Approval Queue 頁
   Scenario: 他端送出後本端自動移除
     Given list 目前有 2 張 draft (id=A, id=B)
     When 另一個 tab 對 draft B 按 Approve
-    And 本端透過 /ws/ui 收到 draft_removed {"id": "B"}
+    And 本端透過 /ws/ui 收到 draft_removed {"draft_id": "B"}
     Then list 只剩 1 張 (id=A)
 
   # --- Keyboard shortcuts ---
