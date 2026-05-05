@@ -4,26 +4,32 @@ const BASE_URL = process.env.BASE_URL || 'http://localhost:8080';
 
 /**
  * 呼叫 debug inject endpoint，注入 fake WS 事件
- * 此 endpoint 由 backend engineer 在 dev 模式提供：POST /api/debug/inject-draft
+ * 此 endpoint 由 backend engineer 在 dev 模式提供（#17 WS-Refactor）：
+ *   POST /api/debug/inject-ws-event
  *
  * Payload 範例：
- *   { "event": "draft_created", "draft": { ...DraftPayload } }
- *   { "event": "draft_removed", "id": "B" }
+ *   { "type": "draft_created", "draft": { ...DraftPayload } }
+ *   { "type": "draft_removed", "draft_id": "B" }
+ *   { "type": "settings_updated", "settings": { ...SettingsPayload } }
+ *
+ * WS 上行方向（backend → frontend）的 UIEvent 結構：
+ *   { type: 'draft_created', draft: { id, ... } }
+ *   { type: 'draft_removed', draft_id: 'X' }   ← wire field 是 draft_id（非 id）
+ *   { type: 'settings_updated', settings: { ... } }
  */
 export async function injectWsEvent(
   request: APIRequestContext,
-  payload: {
-    event: 'draft_created' | 'draft_updated' | 'draft_removed';
-    draft?: Record<string, unknown>;
-    id?: string;
-  }
+  payload:
+    | { type: 'draft_created'; draft: Record<string, unknown> }
+    | { type: 'draft_removed'; draft_id: string }
+    | { type: 'settings_updated'; settings: Record<string, unknown> }
 ): Promise<void> {
-  const res = await request.post(`${BASE_URL}/api/debug/inject-draft`, {
+  const res = await request.post(`${BASE_URL}/api/debug/inject-ws-event`, {
     data: payload,
   });
   if (!res.ok()) {
     throw new Error(
-      `injectWsEvent failed: ${res.status()} — endpoint may not be available yet (requires engineer to implement /api/debug/inject-draft)`
+      `injectWsEvent failed: ${res.status()} — endpoint may not be available yet (requires #17 WS-Refactor to be merged)`
     );
   }
 }

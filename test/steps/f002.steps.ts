@@ -321,14 +321,14 @@ Given('list 目前有 {int} 張 draft', async ({ page, request }, count: number)
 });
 
 When('backend 透過 \\/ws\\/ui 推送 draft_created 事件', async ({ request }) => {
-  // 使用 debug inject endpoint 注入 draft_created 事件
-  // 此 endpoint 由 backend engineer 在 dev 模式實作：POST /api/debug/inject-draft
+  // 使用 debug inject endpoint 注入 draft_created 事件（#17 WS-Refactor 後不寫 DB）
+  // WS payload: { type: 'draft_created', draft: { id, ... } }
   const newDraft = makeDraft({
     id: 'draft-ws-new',
     draft_content: '新即時草稿',
     created_at: new Date().toISOString(),
   });
-  await injectWsEvent(request, { event: 'draft_created', draft: newDraft });
+  await injectWsEvent(request, { type: 'draft_created', draft: newDraft });
 });
 
 Then('list 變成 {int} 張', async ({ page }, count: number) => {
@@ -367,7 +367,8 @@ When('另一個 tab 對 draft B 按 Approve', async ({ request }) => {
 
 When('本端透過 \\/ws\\/ui 收到 draft_removed \\{"id": "B"\\}', async ({ request }) => {
   // 透過 debug inject endpoint 注入 draft_removed 事件
-  await injectWsEvent(request, { event: 'draft_removed', id: 'B' });
+  // WS wire format: { type: 'draft_removed', draft_id: 'B' }（非 id，是 draft_id）
+  await injectWsEvent(request, { type: 'draft_removed', draft_id: 'B' });
 });
 
 Then('list 只剩 {int} 張 \\(id=A\\)', async ({ page }, count: number) => {
