@@ -143,10 +143,24 @@ Then('頂部 nav 顯示 connection badge 為「已連線」', async ({ page }) =
 });
 
 When('backend 中斷', async ({ page, context }) => {
-  // 攔截所有 WebSocket 連線，模擬中斷
-  // 注意：實際 backend 中斷需要外部控制，這裡用 route 攔截 ws 升級請求
+  // 1) 阻擋未來的 WS 重連
   await context.route('**/ws/ui', (route) => {
     route.abort('failed');
+  });
+  // 2) 主動關閉現有的 WS 連線（context.route 不會 kill 已建立的 socket）
+  // 透過 page.evaluate 找到並關閉 react-use-websocket 內部的 WebSocket 實例
+  await page.evaluate(() => {
+    // react-use-websocket 在 window 上沒有公開引用；改用 patching：
+    // 重寫 WebSocket constructor 已過時。用 chromium devtools protocol 走不通，
+    // 改用反射：找到所有 WebSocket 實例並 close。
+    // 由於 react-use-websocket 沒暴露 instance，這裡採用最直接的辦法：
+    // 攔截全域 WebSocket，將既有實例的 close() 呼叫
+    const w = window as unknown as { __wsInstances?: WebSocket[] };
+    if (w.__wsInstances) {
+      w.__wsInstances.forEach((ws) => {
+        try { ws.close(); } catch { /* ignore */ }
+      });
+    }
   });
 });
 
