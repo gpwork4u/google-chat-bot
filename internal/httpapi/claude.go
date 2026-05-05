@@ -32,8 +32,17 @@ func claudeRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.H
 	mux.HandleFunc("GET /api/claude/profile", func(w http.ResponseWriter, r *http.Request) {
 		handleProfileGet(w, r, db, cfg)
 	})
+	mux.HandleFunc("POST /api/claude/profile", func(w http.ResponseWriter, r *http.Request) {
+		handleProfileCreate(w, r, db, cfg)
+	})
 	mux.HandleFunc("PUT /api/claude/profile", func(w http.ResponseWriter, r *http.Request) {
 		handleProfilePut(w, r, db, cfg)
+	})
+	mux.HandleFunc("PATCH /api/claude/profile/{id}", func(w http.ResponseWriter, r *http.Request) {
+		handleProfilePatchByID(w, r, db, cfg)
+	})
+	mux.HandleFunc("DELETE /api/claude/profile/{id}", func(w http.ResponseWriter, r *http.Request) {
+		handleProfileDeleteByID(w, r, db, cfg)
 	})
 	mux.HandleFunc("DELETE /api/claude/profile", func(w http.ResponseWriter, r *http.Request) {
 		handleProfileDelete(w, r, db, cfg)
@@ -307,6 +316,123 @@ func handleProfileDelete(w http.ResponseWriter, r *http.Request, db *store.DB, c
 		return
 	}
 	if err := db.DeleteProfileFact(ctx, user.ID, key); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleProfileCreate creates a new profile fact and returns the new ID.
+func handleProfileCreate(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+	var req profilePutReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Key = strings.TrimSpace(req.Key)
+	req.Value = strings.TrimSpace(req.Value)
+	req.Visibility = strings.ToLower(strings.TrimSpace(req.Visibility))
+	if req.Key == "" {
+		writeErr(w, http.StatusBadRequest, "key required")
+		return
+	}
+	if req.Value == "" {
+		writeErr(w, http.StatusBadRequest, "value required")
+		return
+	}
+	switch req.Visibility {
+	case "public", "private", "secret":
+	default:
+		req.Visibility = "private"
+	}
+	ctx := r.Context()
+	user, err := requireLocalUser(ctx, db, cfg)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	id, err := db.CreateProfileFact(ctx, user.ID, store.ProfileFact{
+		Key:        req.Key,
+		Value:      req.Value,
+		Visibility: req.Visibility,
+		Note:       req.Note,
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"ok": true, "id": id, "key": req.Key,
+		"value": req.Value, "visibility": req.Visibility, "note": req.Note,
+	})
+}
+
+// handleProfilePatchByID updates a profile fact by numeric ID.
+func handleProfilePatchByID(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	raw := make(map[string]json.RawMessage)
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ctx := r.Context()
+	user, err := requireLocalUser(ctx, db, cfg)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	patchReq := store.PatchProfileFactRequest{}
+	if v, ok := raw["key"]; ok {
+		var s string
+		if err := json.Unmarshal(v, &s); err == nil {
+			patchReq.Key = &s
+		}
+	}
+	if v, ok := raw["value"]; ok {
+		var s string
+		if err := json.Unmarshal(v, &s); err == nil {
+			patchReq.Value = &s
+		}
+	}
+	if v, ok := raw["visibility"]; ok {
+		var s string
+		if err := json.Unmarshal(v, &s); err == nil {
+			patchReq.Visibility = &s
+		}
+	}
+	if v, ok := raw["note"]; ok {
+		var s string
+		if err := json.Unmarshal(v, &s); err == nil {
+			patchReq.Note = &s
+		}
+	}
+	if err := db.PatchProfileFact(ctx, user.ID, id, patchReq); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
+}
+
+// handleProfileDeleteByID removes a profile fact by numeric ID.
+func handleProfileDeleteByID(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	ctx := r.Context()
+	user, err := requireLocalUser(ctx, db, cfg)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if err := db.DeleteProfileFactByID(ctx, user.ID, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
