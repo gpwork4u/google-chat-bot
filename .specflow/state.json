@@ -1,14 +1,14 @@
 {
   "epic": "https://github.com/gpwork4u/google-chat-bot/issues/1",
   "current_sprint": {
-    "number": 1,
-    "issue": "https://github.com/gpwork4u/google-chat-bot/issues/2",
-    "milestone": "Sprint 1: UI 框架 + Approval Queue"
+    "number": 4,
+    "issue": "https://github.com/gpwork4u/google-chat-bot/issues/47",
+    "milestone": "Sprint 4: 安全護欄（金錢偵測）+ 技術債清理"
   },
-  "phase": "phase-2-tech-survey",
-  "last_action": null,
-  "next_action": "Sprint 1 等待 tech-lead 接手",
+  "phase": "phase-2-spec",
+  "last_action": "Sprint 4 spec 已發佈（F-008 + tech-debt）",
+  "next_action": "Sprint 4 spec 已發佈，待 /specflow:plan 啟動 tech-lead",
   "in_flight_agents": [],
   "open_questions": [],
-  "updated_at": "2026-05-04T13:30:54Z"
+  "updated_at": "2026-05-06T00:00:00Z"
 }
