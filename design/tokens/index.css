@@ -35,6 +35,8 @@
  *   - Semantic Border: --color-border-{default/strong/focus}
  *   - Status: --color-{success/warning/error/info}-{subtle/default/strong}
  *   - Category Badge: --color-category-{chat/work/eng/skip}-{bg/text/border}
+ *   - Mode Badge（Sprint 2）: --color-mode-{approved/auto}-{bg/text/border}
+ *   - Toast（Sprint 2）: --color-toast-{success/error}-{bg/text/icon}
  *   - .dark overrides
  *
  * design/tokens/typography.css
