@@ -126,14 +126,11 @@ Then('每張卡片顯示 space_name \\/ sender_name \\/ draft_content \\/ catego
 // ---------------------------------------------------------------------------
 
 Given('第一張 draft 內容為 {string}', async ({ page, request }, content: string) => {
-  // 若 list 為空則 seed 一張，再 reload 等待出現
-  const card = page.locator('[data-testid="draft-card"]').first();
-  if ((await card.count()) === 0) {
-    await trySeedDrafts(request, [makeDraft({ id: 'draft-firstcontent', draft_content: content })]);
-    await page.reload();
-    await page.waitForLoadState('networkidle');
-    await page.waitForSelector('[data-testid="draft-card"]', { timeout: 10_000 });
-  }
+  // 永遠 reset + seed 一張指定內容的 draft，避免前一個 scenario 殘留
+  await trySeedDrafts(request, [makeDraft({ id: 'draft-firstcontent', draft_content: content })]);
+  await page.reload();
+  await page.waitForLoadState('networkidle');
+  await page.waitForSelector('[data-testid="draft-card"]', { timeout: 10_000 });
   const textarea = page.locator('[data-testid="draft-card"]').first().locator('textarea, [data-testid="draft-textarea"]');
   await expect(textarea).toHaveValue(content);
 });
@@ -215,13 +212,10 @@ Then('顯示成功 toast {string}', async ({ page }, message: string) => {
 // ---------------------------------------------------------------------------
 
 Given('第一張 draft 原內容為 {string}', async ({ page, request }, originalContent: string) => {
-  const card = page.locator('[data-testid="draft-card"]').first();
-  if ((await card.count()) === 0) {
-    await trySeedDrafts(request, [makeDraft({ id: 'draft-orig', draft_content: originalContent })]);
-    await page.reload();
-    await page.waitForLoadState('networkidle');
-    await page.waitForSelector('[data-testid="draft-card"]', { timeout: 10_000 });
-  }
+  await trySeedDrafts(request, [makeDraft({ id: 'draft-orig', draft_content: originalContent })]);
+  await page.reload();
+  await page.waitForLoadState('networkidle');
+  await page.waitForSelector('[data-testid="draft-card"]', { timeout: 10_000 });
   const textarea = page.locator('[data-testid="draft-card"]').first().locator('textarea, [data-testid="draft-textarea"]');
   await expect(textarea).toHaveValue(originalContent);
 });
