@@ -88,7 +88,7 @@ Body `{ "content": "..." }` 暫存編輯不送出。
 |-------|---------|------|
 | `draft_created` | `{ draft }` | append 到 list |
 | `draft_updated` | `{ draft }` | 找到同 id 替換 |
-| `draft_removed` | `{ id }` | 從 list 移除 |
+| `draft_removed` | `{ draft_id }` | 從 list 移除 |
 
 ## Business Rules
 
