@@ -34,7 +34,7 @@ func draftsRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.H
 	// without needing a live Chat session.
 	if os.Getenv("NODE_ENV") == "development" || os.Getenv("INJECT_DRAFT_ENABLED") == "1" {
 		mux.HandleFunc("POST /api/debug/inject-draft", func(w http.ResponseWriter, r *http.Request) {
-			handleDebugInjectDraft(w, r, db, cfg, h)
+			handleDebugInjectDraft(w, r, nil, cfg, h)
 		})
 		registerSeedDraftsRoute(mux, db, cfg, h)
 	}
@@ -64,80 +64,96 @@ func handleListDraftsUI(w http.ResponseWriter, r *http.Request, db *store.DB, cf
 	writeJSON(w, http.StatusOK, map[string]any{"drafts": drafts})
 }
 
-// handleDebugInjectDraft creates a synthetic pending draft for e2e testing.
-// Only enabled when NODE_ENV=development or INJECT_DRAFT_ENABLED=1.
+// debugInjectDraftReq is the request body for POST /api/debug/inject-draft.
+//
+// Sprint 2 redesign: this endpoint no longer writes to the DB.  It broadcasts
+// a draft_created WebSocket event directly so that BDD scenarios can use
+// symbolic IDs (e.g. "A", "draft-ws-new") instead of DB-assigned numerics.
+// The legacy inbox_changed event is still emitted for backward compat.
 type debugInjectDraftReq struct {
-	SpaceKey    string `json:"space_key"`
-	SpaceName   string `json:"space_name"`
-	SenderName  string `json:"sender_name"`
-	Body        string `json:"body"`
-	DraftBody   string `json:"draft_body"`
+	// Draft is the full draft object that will be forwarded verbatim to UI
+	// WebSocket clients as the draft_created payload.
+	//
+	// If Draft.ID is absent or empty a unique ID is generated from the
+	// current timestamp so the caller always gets a usable draft_id back.
+	Draft map[string]any `json:"draft"`
+
+	// ---- deprecated flat fields (kept for backward compat) ----
+	// If Draft is not provided these are used to build a minimal object.
+	SpaceKey   string `json:"space_key"`
+	SpaceName  string `json:"space_name"`
+	SenderName string `json:"sender_name"`
+	Body       string `json:"body"`
+	DraftBody  string `json:"draft_body"`
 }
 
-func handleDebugInjectDraft(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
-	ctx := r.Context()
-	user, err := requireLocalUser(ctx, db, cfg)
-	if err != nil {
-		writeErr(w, http.StatusUnauthorized, err.Error())
-		return
-	}
+func handleDebugInjectDraft(w http.ResponseWriter, r *http.Request, _ *store.DB, _ *config.Config, h *hub.Hub) {
+	// NOTE: Auth is intentionally omitted here. This endpoint is only
+	// reachable when NODE_ENV=development or INJECT_DRAFT_ENABLED=1 (see
+	// draftsRoutes), so it is never exposed in production. Adding a DB-backed
+	// auth check would force tests to bring up a real DB; the dev restriction
+	// at the routing layer is sufficient guard.
+	_ = r.Context()
 
 	var req debugInjectDraftReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Body == "" {
-		req.Body = "test message"
-	}
-	if req.DraftBody == "" {
-		req.DraftBody = "test draft reply"
-	}
-	if req.SpaceKey == "" {
-		req.SpaceKey = "debug-space"
-	}
-	if req.SpaceName == "" {
-		req.SpaceName = "Debug Space"
-	}
-	if req.SenderName == "" {
-		req.SenderName = "Debug User"
+
+	// Build draft payload — prefer the nested "draft" object; fall back to
+	// legacy flat fields for backward-compat callers.
+	draftPayload := req.Draft
+	if draftPayload == nil {
+		if req.DraftBody == "" {
+			req.DraftBody = "test draft reply"
+		}
+		if req.SpaceKey == "" {
+			req.SpaceKey = "debug-space"
+		}
+		if req.SpaceName == "" {
+			req.SpaceName = "Debug Space"
+		}
+		if req.SenderName == "" {
+			req.SenderName = "Debug User"
+		}
+		if req.Body == "" {
+			req.Body = "test message"
+		}
+		draftPayload = map[string]any{
+			"space_id":         req.SpaceKey,
+			"space_name":       req.SpaceName,
+			"sender_name":      req.SenderName,
+			"original_message": req.Body,
+			"draft_content":    req.DraftBody,
+			"status":           "pending",
+		}
 	}
 
-	// Insert a fake message.
-	msg := &store.Message{
-		UserID:     user.ID,
-		SpaceKey:   req.SpaceKey,
-		SpaceName:  req.SpaceName,
-		ThreadKey:  "debug-thread-" + strconv.FormatInt(time.Now().UnixNano(), 10),
-		MessageKey: "debug-msg-" + strconv.FormatInt(time.Now().UnixNano(), 10),
-		SenderName: req.SenderName,
-		SenderIsMe: false,
-		Body:       req.Body,
-		ObservedAt: time.Now(),
+	// Ensure the draft has an id; generate one if absent.
+	draftID := ""
+	if v, ok := draftPayload["id"]; ok {
+		switch s := v.(type) {
+		case string:
+			draftID = s
+		case float64:
+			draftID = strconv.FormatInt(int64(s), 10)
+		}
 	}
-	if _, err := db.InsertOrGetMessage(ctx, msg); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
+	if draftID == "" {
+		draftID = "inject-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+		draftPayload["id"] = draftID
 	}
 
-	// Insert a pending draft for it.
-	d := &store.Draft{
-		MessageID: msg.ID,
-		Body:      req.DraftBody,
-		Model:     "debug",
-		Status:    "pending",
-	}
-	if err := db.InsertDraft(ctx, d); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
+	// Broadcast payload-bearing event. Also fire legacy inbox_changed for
+	// any clients that haven't migrated to draft_created yet.
 	if h != nil {
+		h.DraftCreated(draftPayload)
 		h.InboxChanged()
 	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"ok":         true,
-		"draft_id":   d.ID,
-		"message_id": msg.ID,
+		"ok":       true,
+		"draft_id": draftID,
 	})
 }
