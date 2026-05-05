@@ -58,7 +58,7 @@ export async function seedDrafts(
   request: APIRequestContext,
   drafts: Record<string, unknown>[]
 ): Promise<void> {
-  const res = await request.post(`${BASE_URL}/api/debug/seed-drafts`, {
+  const res = await request.post(`${BASE_URL}/api/debug/seed-drafts?reset=1`, {
     data: { drafts },
   });
   if (!res.ok()) {

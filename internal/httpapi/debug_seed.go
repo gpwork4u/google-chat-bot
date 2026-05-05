@@ -72,12 +72,27 @@ func handleDebugSeedDrafts(w http.ResponseWriter, r *http.Request, db *store.DB,
 		return
 	}
 
+	reset := r.URL.Query().Get("reset") == "1"
+
+	// reset=1 表示先清空該使用者所有 pending drafts，常用於 BDD 場景之間的隔離
+	if reset {
+		if _, err := db.Exec(ctx, `DELETE FROM drafts WHERE message_id IN (SELECT id FROM messages WHERE user_id=$1) AND status='pending'`, user.ID); err != nil {
+			writeErr(w, http.StatusInternalServerError, "reset drafts: "+err.Error())
+			return
+		}
+	}
+
 	var req seedDraftsReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	if len(req.Drafts) == 0 {
+		// reset=1 且空陣列 = 純清空
+		if reset {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "created_ids": []int64{}})
+			return
+		}
 		writeErr(w, http.StatusBadRequest, "drafts array is empty")
 		return
 	}
@@ -138,6 +153,7 @@ func handleDebugSeedDrafts(w http.ResponseWriter, r *http.Request, db *store.DB,
 			Body:      item.DraftContent,
 			Model:     "seed",
 			Status:    "pending",
+			SendMode:  "new_topic",
 			Reasoning: reasoning,
 		}
 		if err := db.InsertDraft(ctx, d); err != nil {

@@ -10,6 +10,7 @@ export default defineConfig({
   testDir,
   outputDir: './test-results',
   fullyParallel: false,
+  workers: 1,
   timeout: 30_000,
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:8080',
