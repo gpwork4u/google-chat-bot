@@ -77,6 +77,7 @@ function ToastItem({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: num
   return (
     <div
       role="status"
+      data-testid="toast"
       className={[
         'flex items-center gap-3 px-4 py-3 rounded-md shadow-md',
         'text-sm font-medium text-white',

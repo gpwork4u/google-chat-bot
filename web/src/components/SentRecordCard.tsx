@@ -35,6 +35,8 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
       className="rounded-md border border-[--color-border-default] bg-[--color-surface-default] shadow-sm transition-all duration-150"
       data-testid="sent-record"
       data-record-id={record.id}
+      data-sent-at={record.sent_at}
+      data-space-id={record.space_id}
     >
       <button
         className="w-full text-left px-4 py-3 flex items-start gap-3"
@@ -44,11 +46,11 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
         {/* Main content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="text-sm font-semibold text-[--color-text-default] truncate">
+            <span data-testid="space-name" className="text-sm font-semibold text-[--color-text-default] truncate">
               {record.space_name}
             </span>
             <span className="text-xs text-[--color-text-muted]">·</span>
-            <span className="text-xs text-[--color-text-muted]">{record.sender_name}</span>
+            <span data-testid="sender-name" className="text-xs text-[--color-text-muted]">{record.sender_name}</span>
             <span className="text-xs text-[--color-text-muted]">·</span>
             <time className="text-xs text-[--color-text-muted]" dateTime={record.sent_at}>
               {formatDateTime(record.sent_at)}
@@ -81,7 +83,7 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
           </div>
 
           {/* Sent content */}
-          <div className="text-sm text-[--color-text-default]">
+          <div data-testid="sent-content" className="text-sm text-[--color-text-default]">
             <span className="text-xs font-medium text-[--color-text-muted]">送出：</span>
             <span className="line-clamp-2">{record.sent_content}</span>
           </div>
@@ -97,7 +99,7 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="px-4 pb-4 border-t border-[--color-border-default] pt-3">
+        <div data-testid="record-detail" className="px-4 pb-4 border-t border-[--color-border-default] pt-3">
           <div className="space-y-2 text-sm">
             <div>
               <span className="text-xs font-medium text-[--color-text-muted] uppercase tracking-wide">
@@ -112,7 +114,7 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
               <p className="mt-0.5 text-[--color-text-default]">{record.sent_content}</p>
             </div>
             {record.category && (
-              <div>
+              <div data-testid="category">
                 <span className="text-xs font-medium text-[--color-text-muted] uppercase tracking-wide">
                   類別
                 </span>

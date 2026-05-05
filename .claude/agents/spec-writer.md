@@ -95,6 +95,32 @@ Feature: F-001 Resource 管理
 7. **Data Tables（`| |`）** — 用於 response 欄位驗證
 8. **每個功能至少包含**：Happy Path + Error Handling + Edge Case 場景
 
+### Wire-level 細節要 quoted（避免 BDD fail）
+
+**經驗教訓**：寫「點擊 Mode filter」「顯示成功 toast」這種模糊描述，會導致 frontend / qa 各自實作不同的 testid / 文字，BDD 大量 fail。
+
+**規則**：所有 selector / 文字 / URL 必須用 `"..."` 引號 quoted exactly。
+
+❌ 不準確（避免）：
+- `When 使用者點擊 Mode filter`
+- `Then 顯示成功 toast`
+- `Then 發送 GET 請求到 sent 列表 endpoint`
+
+✅ 準確（採用）：
+- `When 使用者點擊 [data-testid="mode-filter"]`
+- `Then 顯示 toast 文字 "已送出"`
+- `Then 發送 GET /api/sent`
+
+如果 selector / 文字 / URL 還沒決定：
+- spec 階段先 placeholder（如 `Mode filter`），標 `@TODO-contract`，於 tech-lead 階段補完並更新 .feature 檔
+- 或乾脆先寫例：`[data-testid="mode-filter"]`，tech-lead 寫進 contract
+
+### Spec 不該決定 wire-level 細節嗎？
+
+短答：spec 描述「**什麼行為**」，contract 釘「**怎麼長**」。如果 spec 寫得太糊（`點擊 filter`），下游就會自由發揮；spec 寫得太細（要 frontend 改 layout 又要改 spec），維護成本高。
+
+中庸：spec 用 placeholder 名字（`mode-filter`），tech-lead 在 contract 把它正式 pin（並建立常數），下游 import 常數。spec 不重寫，contract 是延伸定義。
+
 ### 技術方向在 Spec 階段確認，細節由 Tech Lead Survey 決定
 - 與使用者確認技術**偏好和限制**（如：必須用 TypeScript、偏好 PostgreSQL）
 - 具體的框架選型、library 比較由 Tech Lead 上網 survey 後決定

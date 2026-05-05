@@ -180,7 +180,7 @@ function ChannelCard({
           checked={space.enabled}
           onChange={(val) => void onEnabledChange(space.space_key, val)}
           ariaLabel={`啟用 ${space.space_name}`}
-          testId="enable-toggle"
+          testId="enabled-toggle"
         />
       </div>
 
@@ -245,6 +245,7 @@ function ChannelCard({
         </div>
         <input
           type="text"
+          data-testid="keyword-input"
           placeholder="輸入關鍵字，Enter 新增..."
           value={keywordInput}
           disabled={disabled}
