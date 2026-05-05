@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import useSWR from 'swr'
 import { api, fetcher } from '../api/client'
+import { TESTIDS } from '../contracts'
 
 interface Settings {
   auto_mode: boolean
@@ -35,7 +36,7 @@ export default function AutoModeToggle() {
       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
         autoMode ? 'bg-indigo-600' : 'bg-gray-600'
       }`}
-      data-testid="auto-mode-toggle"
+      data-testid={TESTIDS.AUTO_MODE_TOGGLE}
     >
       <span
         className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${

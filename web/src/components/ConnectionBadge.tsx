@@ -1,5 +1,6 @@
 import { ReadyState } from 'react-use-websocket'
 import { useWS } from '../ws/WebSocketProvider'
+import { TESTIDS } from '../contracts'
 
 const stateLabel: Record<ReadyState, string> = {
   [ReadyState.CONNECTING]: '連線中',
@@ -25,7 +26,7 @@ export default function ConnectionBadge() {
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium text-white"
-      data-testid="connection-badge"
+      data-testid={TESTIDS.CONNECTION_BADGE}
       aria-label={`連線狀態: ${label}`}
     >
       <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} />

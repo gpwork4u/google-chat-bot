@@ -4,6 +4,7 @@ import { useSent } from '../hooks/useSent'
 import SentRecordCard from '../components/SentRecordCard'
 import { Search } from 'lucide-react'
 import { fetcher } from '../api/client'
+import { TESTIDS } from '../contracts'
 
 interface SpaceOption {
   space_key: string
@@ -77,7 +78,7 @@ export default function SentPage() {
   }, [loadMoreCb])
 
   return (
-    <div className="flex flex-col gap-4 p-4 max-w-3xl mx-auto">
+    <div className="flex flex-col gap-4 p-4 max-w-3xl mx-auto" data-testid={TESTIDS.SENT_PAGE}>
       <h1 className="text-lg font-semibold text-[--color-text-default]">已送出記錄</h1>
 
       {/* Filter bar */}
@@ -92,7 +93,7 @@ export default function SentPage() {
           </label>
           <select
             id="mode-filter"
-            data-testid="mode-filter"
+            data-testid={TESTIDS.MODE_FILTER}
             value={filter.mode}
             onChange={e => updateFilter({ mode: e.target.value as '' | 'approved' | 'auto' })}
             className="text-sm border border-[--color-border-default] rounded-sm px-2 py-1 bg-[--color-surface-default] text-[--color-text-default] h-8"
@@ -114,7 +115,7 @@ export default function SentPage() {
             </label>
             <select
               id="space-filter"
-              data-testid="space-filter"
+              data-testid={TESTIDS.SPACE_FILTER}
               multiple
               size={Math.min(spaceOptions.length, 4)}
               value={filter.spaceIds}
@@ -138,6 +139,7 @@ export default function SentPage() {
           <input
             id="from-date"
             type="date"
+            data-testid={TESTIDS.SENT_FILTER_DATE_FROM}
             value={filter.from}
             onChange={e => updateFilter({ from: e.target.value })}
             className="text-sm border border-[--color-border-default] rounded-sm px-2 py-1 bg-[--color-surface-default] text-[--color-text-default] h-8"
@@ -152,6 +154,7 @@ export default function SentPage() {
           <input
             id="to-date"
             type="date"
+            data-testid={TESTIDS.SENT_FILTER_DATE_TO}
             value={filter.to}
             onChange={e => updateFilter({ to: e.target.value })}
             className="text-sm border border-[--color-border-default] rounded-sm px-2 py-1 bg-[--color-surface-default] text-[--color-text-default] h-8"
@@ -171,7 +174,7 @@ export default function SentPage() {
             />
             <input
               id="search-input"
-              data-testid="search-input"
+              data-testid={TESTIDS.SEARCH_INPUT}
               type="text"
               defaultValue={filter.q}
               onChange={handleSearchChange}
@@ -185,7 +188,7 @@ export default function SentPage() {
       </div>
 
       {/* List */}
-      <div data-testid="sent-list" className="flex flex-col gap-3">
+      <div data-testid={TESTIDS.SENT_LIST} className="flex flex-col gap-3">
         {isLoading && items.length === 0 && (
           <div className="flex items-center justify-center py-12 text-[--color-text-muted] text-sm">
             載入中...
@@ -201,7 +204,7 @@ export default function SentPage() {
         {isEmpty && !error && (
           <div
             className="flex flex-col items-center justify-center py-20 text-center text-[--color-text-muted]"
-            data-testid="empty-state"
+            data-testid={TESTIDS.EMPTY_STATE}
           >
             <p className="text-base font-medium">近 7 天沒有送出記錄</p>
             <p className="mt-1 text-sm">當 AI 代你送出訊息後，記錄會出現在這裡</p>

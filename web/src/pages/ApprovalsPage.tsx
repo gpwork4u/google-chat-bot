@@ -7,6 +7,7 @@ import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 import { useToast } from '../components/Toast'
 import type { Draft } from '../types/draft'
+import { TESTIDS, TOAST } from '../contracts'
 
 export default function ApprovalsPage() {
   const { drafts, isLoading, error, mutate } = useDrafts()
@@ -84,11 +85,11 @@ export default function ApprovalsPage() {
       try {
         await approveDraft(id, content)
         setStatus(id, 'done')
-        showToast('已送出')
+        showToast(TOAST.APPROVE_SUCCESS)
         removeCard(id)
       } catch {
         setStatus(id, 'error')
-        showToast('送出失敗', 'error')
+        showToast(TOAST.APPROVE_FAILURE, 'error')
       }
     },
     [cardStatuses, setStatus, showToast, removeCard],
@@ -103,11 +104,11 @@ export default function ApprovalsPage() {
       try {
         await rejectDraft(id)
         setStatus(id, 'done')
-        showToast('已丟棄')
+        showToast(TOAST.REJECT_SUCCESS)
         removeCard(id)
       } catch {
         setStatus(id, 'error')
-        showToast('丟棄失敗', 'error')
+        showToast(TOAST.REJECT_FAILURE, 'error')
       }
     },
     [cardStatuses, setStatus, showToast, removeCard],
@@ -117,9 +118,9 @@ export default function ApprovalsPage() {
     async (id: number, content: string) => {
       try {
         await saveDraft(id, content)
-        showToast('已暫存')
+        showToast(TOAST.SAVE_SUCCESS)
       } catch {
-        showToast('暫存失敗', 'error')
+        showToast(TOAST.SAVE_FAILURE, 'error')
       }
     },
     [showToast],
@@ -219,7 +220,7 @@ export default function ApprovalsPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-4">
+    <div className="max-w-3xl mx-auto px-4 py-4" data-testid={TESTIDS.APPROVALS_PAGE}>
       <header className="flex items-baseline justify-between mb-4">
         <h1 className="text-lg font-semibold text-[--color-text-default]">Approvals</h1>
         {visibleDrafts.length > 0 && (
