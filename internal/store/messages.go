@@ -288,8 +288,8 @@ func (db *DB) UpsertDraftForMessage(ctx context.Context, messageID int64, body, 
 
 func (db *DB) InsertDraft(ctx context.Context, d *Draft) error {
 	const q = `
-INSERT INTO drafts (message_id, body, model, send_mode, status, auto_sent, confidence, reasoning)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO drafts (message_id, body, original_body, model, send_mode, status, auto_sent, confidence, reasoning)
+VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, created_at, updated_at`
 	return db.QueryRow(ctx, q, d.MessageID, d.Body, d.Model, d.SendMode, d.Status, d.AutoSent, d.Confidence, d.Reasoning).
 		Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
