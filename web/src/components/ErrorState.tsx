@@ -1,4 +1,5 @@
 import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { TESTIDS } from '../contracts'
 
 interface ErrorStateProps {
   onRetry: () => void
@@ -8,7 +9,7 @@ export default function ErrorState({ onRetry }: ErrorStateProps) {
   return (
     <div
       role="alert"
-      data-testid="error-state"
+      data-testid={TESTIDS.ERROR_STATE}
       className="flex flex-col items-center justify-center py-20 text-center"
     >
       <AlertTriangle

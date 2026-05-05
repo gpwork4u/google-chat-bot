@@ -9,6 +9,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import type { Draft, DraftCategory } from '../types/draft'
+import { TESTIDS } from '../contracts'
 
 export type CardStatus = 'pending' | 'approving' | 'sending' | 'done' | 'error'
 
@@ -118,7 +119,7 @@ export default function ApprovalCard({
       className={cardClass}
       role="article"
       aria-label={`${draft.space_name}：來自 ${draft.sender_name} 的草稿`}
-      data-testid="draft-card"
+      data-testid={TESTIDS.DRAFT_CARD}
       data-draft-id={draft.id}
       data-focused={isFocused ? 'true' : 'false'}
       data-created-at={draft.created_at}
@@ -162,10 +163,10 @@ export default function ApprovalCard({
         {/* Header */}
         <div className="flex items-start justify-between mb-1">
           <div className="flex-1 min-w-0 mr-3">
-            <p className="text-sm font-semibold text-[--color-text-default] truncate" data-testid="space-name">
+            <p className="text-sm font-semibold text-[--color-text-default] truncate" data-testid={TESTIDS.SPACE_NAME}>
               {draft.space_name}
             </p>
-            <p className="text-xs text-[--color-text-muted] mt-0.5" data-testid="sender-name">
+            <p className="text-xs text-[--color-text-muted] mt-0.5" data-testid={TESTIDS.SENDER_NAME}>
               {draft.sender_name}
               {draft.created_at && (
                 <>
@@ -181,7 +182,7 @@ export default function ApprovalCard({
             {/* Category badge */}
             <span
               className={`inline-flex items-center rounded-xs border px-1.5 py-0.5 text-2xs font-medium ${badgeClass}`}
-              data-testid="category-label"
+              data-testid={TESTIDS.CATEGORY_LABEL}
             >
               {label}
             </span>

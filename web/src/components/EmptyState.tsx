@@ -1,9 +1,10 @@
 import { CheckCheck } from 'lucide-react'
+import { TESTIDS } from '../contracts'
 
 export default function EmptyState() {
   return (
     <div
-      data-testid="empty-state"
+      data-testid={TESTIDS.EMPTY_STATE}
       aria-label="沒有待處理的草稿"
       className="flex flex-col items-center justify-center py-20 text-center"
     >

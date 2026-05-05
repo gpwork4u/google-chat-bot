@@ -3,6 +3,7 @@ import useSWR from 'swr'
 import { api, fetcher } from '../api/client'
 import { useSettings } from '../hooks/useSettings'
 import { useToast } from '../components/Toast'
+import { TESTIDS, TOAST } from '../contracts'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -93,7 +94,7 @@ interface KeywordChipProps {
 function KeywordChip({ keyword, onDelete, disabled }: KeywordChipProps) {
   return (
     <span
-      data-testid="keyword-chip"
+      data-testid={TESTIDS.KEYWORD_CHIP}
       data-keyword={keyword}
       className="inline-flex items-center gap-1 h-6 pl-2 pr-1 text-xs rounded-full border bg-gray-800 text-gray-300 border-gray-600 select-none"
     >
@@ -101,7 +102,7 @@ function KeywordChip({ keyword, onDelete, disabled }: KeywordChipProps) {
       <button
         type="button"
         aria-label={`刪除關鍵字 ${keyword}`}
-        data-testid="remove-keyword"
+        data-testid={TESTIDS.REMOVE_KEYWORD}
         disabled={disabled}
         onClick={onDelete}
         className={[
@@ -160,7 +161,7 @@ function ChannelCard({
     <div
       role="region"
       aria-label={`${space.space_name} 設定`}
-      data-testid="channel-card"
+      data-testid={TESTIDS.CHANNEL_CARD}
       data-space-id={space.space_key}
       className={[
         'rounded-md border border-gray-700 bg-gray-900 overflow-hidden transition-opacity duration-150',
@@ -180,7 +181,7 @@ function ChannelCard({
           checked={space.enabled}
           onChange={(val) => void onEnabledChange(space.space_key, val)}
           ariaLabel={`啟用 ${space.space_name}`}
-          testId="enabled-toggle"
+          testId={TESTIDS.ENABLED_TOGGLE}
         />
       </div>
 
@@ -192,7 +193,7 @@ function ChannelCard({
           onChange={(val) => void onMentionOnlyChange(space.space_key, val)}
           ariaLabel="只在被 @提及 時觸發"
           disabled={disabled}
-          testId="mention-only-toggle"
+          testId={TESTIDS.MENTION_ONLY_TOGGLE}
         />
       </div>
 
@@ -245,7 +246,7 @@ function ChannelCard({
         </div>
         <input
           type="text"
-          data-testid="keyword-input"
+          data-testid={TESTIDS.KEYWORD_INPUT}
           placeholder="輸入關鍵字，Enter 新增..."
           value={keywordInput}
           disabled={disabled}
@@ -317,14 +318,14 @@ function ProfileFactItem({ fact, onEdit, onDelete }: ProfileFactItemProps) {
 
   if (mode === 'edit') {
     return (
-      <li role="listitem" data-testid="profile-fact-item" className="py-2 border-b border-gray-700 last:border-b-0">
+      <li role="listitem" data-testid={TESTIDS.PROFILE_FACT_ITEM} className="py-2 border-b border-gray-700 last:border-b-0">
         <div role="form" aria-label={`編輯 ${fact.key}`} className="mt-1 p-3 bg-gray-800 border border-gray-600 rounded-sm space-y-2">
           <div>
             <label className="block text-xs text-gray-400 mb-1" htmlFor={`edit-key-${fact.id}`}>名稱</label>
             <input
               id={`edit-key-${fact.id}`}
               type="text"
-              data-testid="fact-key"
+              data-testid={TESTIDS.FACT_KEY}
               name="key"
               value={editKey}
               onChange={(e) => setEditKey(e.target.value)}
@@ -336,7 +337,7 @@ function ProfileFactItem({ fact, onEdit, onDelete }: ProfileFactItemProps) {
             <label className="block text-xs text-gray-400 mb-1" htmlFor={`edit-value-${fact.id}`}>內容</label>
             <textarea
               id={`edit-value-${fact.id}`}
-              data-testid="fact-value"
+              data-testid={TESTIDS.FACT_VALUE}
               name="value"
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
@@ -348,7 +349,7 @@ function ProfileFactItem({ fact, onEdit, onDelete }: ProfileFactItemProps) {
             <label className="block text-xs text-gray-400 mb-1" htmlFor={`edit-vis-${fact.id}`}>可見度</label>
             <select
               id={`edit-vis-${fact.id}`}
-              data-testid="fact-visibility"
+              data-testid={TESTIDS.FACT_VISIBILITY}
               name="visibility"
               value={editVisibility}
               onChange={(e) => setEditVisibility(e.target.value as FactVisibility)}
@@ -383,7 +384,7 @@ function ProfileFactItem({ fact, onEdit, onDelete }: ProfileFactItemProps) {
 
   if (mode === 'deleting') {
     return (
-      <li role="listitem" data-testid="profile-fact-item" className="flex items-center gap-2 py-2 border-b border-gray-700 last:border-b-0">
+      <li role="listitem" data-testid={TESTIDS.PROFILE_FACT_ITEM} className="flex items-center gap-2 py-2 border-b border-gray-700 last:border-b-0">
         <span className="flex-1 text-sm text-gray-300 truncate">{fact.key}</span>
         <span className="text-xs text-gray-400">確認刪除？</span>
         <button
@@ -406,7 +407,7 @@ function ProfileFactItem({ fact, onEdit, onDelete }: ProfileFactItemProps) {
   }
 
   return (
-    <li role="listitem" data-testid="profile-fact-item" className="flex items-center gap-2 py-2 border-b border-gray-700 last:border-b-0">
+    <li role="listitem" data-testid={TESTIDS.PROFILE_FACT_ITEM} className="flex items-center gap-2 py-2 border-b border-gray-700 last:border-b-0">
       <span className="flex-1 text-sm text-gray-200 truncate min-w-0">{fact.key}</span>
       <span
         className={`text-xs px-1.5 py-0.5 rounded-sm flex-shrink-0 ${VISIBILITY_BADGE[fact.visibility]}`}
@@ -478,7 +479,7 @@ function ProfileFactGroup({ visibility, facts, onEdit, onDelete, onAdd }: Profil
     <div
       role="group"
       aria-label={`${title} 事實分組`}
-      data-testid="profile-group"
+      data-testid={TESTIDS.PROFILE_GROUP}
       data-visibility={visibility}
       className="rounded-md border border-gray-700 bg-gray-900 overflow-hidden"
     >
@@ -509,7 +510,7 @@ function ProfileFactGroup({ visibility, facts, onEdit, onDelete, onAdd }: Profil
               <label className="block text-xs text-gray-400 mb-1">名稱</label>
               <input
                 type="text"
-                data-testid="fact-key"
+                data-testid={TESTIDS.FACT_KEY}
                 name="key"
                 value={addKey}
                 placeholder="例：工作習慣"
@@ -520,7 +521,7 @@ function ProfileFactGroup({ visibility, facts, onEdit, onDelete, onAdd }: Profil
             <div>
               <label className="block text-xs text-gray-400 mb-1">內容</label>
               <textarea
-                data-testid="fact-value"
+                data-testid={TESTIDS.FACT_VALUE}
                 name="value"
                 value={addValue}
                 placeholder="例：早上效率高"
@@ -591,9 +592,9 @@ export default function SettingsPage() {
           body: JSON.stringify(body),
         })
         await mutateSettings(prev => prev ? { ...prev, ...updated } as typeof prev : prev, false)
-        showToast('已儲存', 'success')
+        showToast(TOAST.SETTINGS_SAVED, 'success')
       } catch {
-        showToast('儲存失敗，請重試', 'error')
+        showToast(TOAST.SETTINGS_SAVE_FAILED, 'error')
         await mutateSettings()
       }
     },
@@ -607,9 +608,9 @@ export default function SettingsPage() {
       await mutateSettings(prev => prev ? { ...prev, auto_mode: val } : prev, false)
       try {
         await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ auto_mode: val }) })
-        showToast('已儲存', 'success')
+        showToast(TOAST.SETTINGS_SAVED, 'success')
       } catch {
-        showToast('儲存失敗，請重試', 'error')
+        showToast(TOAST.SETTINGS_SAVE_FAILED, 'error')
         // Rollback
         if (prevSettings) {
           await mutateSettings(prevSettings, false)
@@ -626,9 +627,9 @@ export default function SettingsPage() {
       await mutateSettings(prev => prev ? { ...prev, debug_mode: val } : prev, false)
       try {
         await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ debug_mode: val }) })
-        showToast('已儲存', 'success')
+        showToast(TOAST.SETTINGS_SAVED, 'success')
       } catch {
-        showToast('儲存失敗，請重試', 'error')
+        showToast(TOAST.SETTINGS_SAVE_FAILED, 'error')
         await mutateSettings()
       }
     },
@@ -654,9 +655,9 @@ export default function SettingsPage() {
           body: JSON.stringify({ space_id: spaceId, enabled }),
         })
         await mutateSpaces()
-        showToast('已儲存', 'success')
+        showToast(TOAST.SETTINGS_SAVED, 'success')
       } catch {
-        showToast('儲存失敗，請重試', 'error')
+        showToast(TOAST.SETTINGS_SAVE_FAILED, 'error')
       }
     },
     [mutateSpaces, showToast],
@@ -670,9 +671,9 @@ export default function SettingsPage() {
           body: JSON.stringify({ mention_only: val }),
         })
         await mutateSpaces()
-        showToast('已儲存', 'success')
+        showToast(TOAST.SETTINGS_SAVED, 'success')
       } catch {
-        showToast('儲存失敗，請重試', 'error')
+        showToast(TOAST.SETTINGS_SAVE_FAILED, 'error')
       }
     },
     [mutateSpaces, showToast],
@@ -686,9 +687,9 @@ export default function SettingsPage() {
           body: JSON.stringify({ auto_mode_override: val }),
         })
         await mutateSpaces()
-        showToast('已儲存', 'success')
+        showToast(TOAST.SETTINGS_SAVED, 'success')
       } catch {
-        showToast('儲存失敗，請重試', 'error')
+        showToast(TOAST.SETTINGS_SAVE_FAILED, 'error')
       }
     },
     [mutateSpaces, showToast],
@@ -702,9 +703,9 @@ export default function SettingsPage() {
           body: JSON.stringify({ blocked_keywords: keywords }),
         })
         await mutateSpaces()
-        showToast('已儲存', 'success')
+        showToast(TOAST.SETTINGS_SAVED, 'success')
       } catch {
-        showToast('儲存失敗，請重試', 'error')
+        showToast(TOAST.SETTINGS_SAVE_FAILED, 'error')
       }
     },
     [mutateSpaces, showToast],
@@ -718,7 +719,7 @@ export default function SettingsPage() {
         body: JSON.stringify({ key: fact.key, value: fact.value, visibility: fact.visibility }),
       })
       await mutateProfile()
-      showToast('已儲存', 'success')
+      showToast(TOAST.SETTINGS_SAVED, 'success')
     },
     [mutateProfile, showToast],
   )
@@ -727,7 +728,7 @@ export default function SettingsPage() {
     async (id: number) => {
       await api(`/api/claude/profile/${id}`, { method: 'DELETE' })
       await mutateProfile()
-      showToast('已刪除', 'success')
+      showToast(TOAST.PROFILE_DELETED, 'success')
     },
     [mutateProfile, showToast],
   )
@@ -739,7 +740,7 @@ export default function SettingsPage() {
         body: JSON.stringify({ key, value, visibility }),
       })
       await mutateProfile()
-      showToast('已新增', 'success')
+      showToast(TOAST.PROFILE_ADDED, 'success')
     },
     [mutateProfile, showToast],
   )
@@ -766,7 +767,7 @@ export default function SettingsPage() {
       <h1 className="text-xl font-semibold text-gray-100">設定</h1>
 
       {/* ── Global Section ── */}
-      <section data-testid="global-section" aria-label="全域設定" className="space-y-0">
+      <section data-testid={TESTIDS.GLOBAL_SECTION} aria-label="全域設定" className="space-y-0">
         <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">全域設定</h2>
         {settingsLoading ? (
           <div className="rounded-md border border-gray-700 bg-gray-900 p-4 space-y-4">
@@ -790,7 +791,7 @@ export default function SettingsPage() {
                 checked={settings?.auto_mode ?? false}
                 onChange={(val) => void handleAutoModeToggle(val)}
                 ariaLabel="全域 Auto 模式"
-                testId="auto-mode-toggle"
+                testId={TESTIDS.AUTO_MODE_TOGGLE}
               />
             </div>
 
@@ -802,7 +803,7 @@ export default function SettingsPage() {
                 </label>
                 <p className="text-xs text-gray-500 mt-0.5">此時間內的訊息才會觸發草稿（1 ~ 1440 分鐘）</p>
                 {freshnessError && (
-                  <p className="text-xs text-red-400 mt-0.5" data-testid="freshness-error">{freshnessError}</p>
+                  <p className="text-xs text-red-400 mt-0.5" data-testid={TESTIDS.FRESHNESS_ERROR}>{freshnessError}</p>
                 )}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
@@ -812,7 +813,7 @@ export default function SettingsPage() {
                   min={1}
                   max={1440}
                   value={freshnessValue}
-                  data-testid="freshness-input"
+                  data-testid={TESTIDS.FRESHNESS_INPUT}
                   onChange={(e) => {
                     setFreshnessValue(e.target.value === '' ? '' : Number(e.target.value))
                     setFreshnessError(null)
@@ -845,7 +846,7 @@ export default function SettingsPage() {
                 checked={settings?.debug_mode ?? false}
                 onChange={(val) => void handleDebugToggle(val)}
                 ariaLabel="Debug 模式"
-                testId="debug-toggle"
+                testId={TESTIDS.DEBUG_TOGGLE}
               />
             </div>
           </div>
@@ -853,7 +854,7 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Channels Section ── */}
-      <section data-testid="channels-section" aria-label="空間設定" className="space-y-0">
+      <section data-testid={TESTIDS.CHANNELS_SECTION} aria-label="空間設定" className="space-y-0">
         <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">空間設定</h2>
         {spacesLoading ? (
           <div className="space-y-3">
@@ -886,7 +887,7 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Profile Section ── */}
-      <section data-testid="profile-section" aria-label="個人特質" className="space-y-0">
+      <section data-testid={TESTIDS.PROFILE_SECTION} aria-label="個人特質" className="space-y-0">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">個人特質</h2>
           <button
