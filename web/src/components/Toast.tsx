@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { CheckCircle, XCircle, X } from 'lucide-react'
+import { TESTIDS } from '../contracts'
 
 export type ToastType = 'success' | 'error'
 
@@ -77,7 +78,7 @@ function ToastItem({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: num
   return (
     <div
       role="status"
-      data-testid="toast"
+      data-testid={TESTIDS.TOAST}
       className={[
         'flex items-center gap-3 px-4 py-3 rounded-md shadow-md',
         'text-sm font-medium text-white',

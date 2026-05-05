@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { SentRecord } from '../types/sent'
+import { TESTIDS } from '../contracts'
 
 interface SentRecordCardProps {
   record: SentRecord
@@ -33,7 +34,7 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
   return (
     <article
       className="rounded-md border border-[--color-border-default] bg-[--color-surface-default] shadow-sm transition-all duration-150"
-      data-testid="sent-record"
+      data-testid={TESTIDS.SENT_RECORD}
       data-record-id={record.id}
       data-sent-at={record.sent_at}
       data-space-id={record.space_id}
@@ -46,11 +47,11 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
         {/* Main content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span data-testid="space-name" className="text-sm font-semibold text-[--color-text-default] truncate">
+            <span data-testid={TESTIDS.SPACE_NAME} className="text-sm font-semibold text-[--color-text-default] truncate">
               {record.space_name}
             </span>
             <span className="text-xs text-[--color-text-muted]">·</span>
-            <span data-testid="sender-name" className="text-xs text-[--color-text-muted]">{record.sender_name}</span>
+            <span data-testid={TESTIDS.SENDER_NAME} className="text-xs text-[--color-text-muted]">{record.sender_name}</span>
             <span className="text-xs text-[--color-text-muted]">·</span>
             <time className="text-xs text-[--color-text-muted]" dateTime={record.sent_at}>
               {formatDateTime(record.sent_at)}
@@ -61,7 +62,7 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
           <div className="flex items-center gap-2 mb-2 flex-wrap">
             <span
               className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${modeBadgeClass}`}
-              data-testid="mode-badge"
+              data-testid={TESTIDS.MODE_BADGE}
               data-mode={record.mode}
             >
               {modeLabel}
@@ -69,7 +70,7 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
             {record.edited_by_user && (
               <span
                 className="inline-flex items-center rounded-full border border-purple-200 bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700"
-                data-testid="edited-badge"
+                data-testid={TESTIDS.EDITED_BADGE}
               >
                 使用者編輯過
               </span>
@@ -83,7 +84,7 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
           </div>
 
           {/* Sent content */}
-          <div data-testid="sent-content" className="text-sm text-[--color-text-default]">
+          <div data-testid={TESTIDS.SENT_CONTENT} className="text-sm text-[--color-text-default]">
             <span className="text-xs font-medium text-[--color-text-muted]">送出：</span>
             <span className="line-clamp-2">{record.sent_content}</span>
           </div>
@@ -99,7 +100,7 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
 
       {/* Expanded detail */}
       {expanded && (
-        <div data-testid="record-detail" className="px-4 pb-4 border-t border-[--color-border-default] pt-3">
+        <div data-testid={TESTIDS.RECORD_DETAIL} className="px-4 pb-4 border-t border-[--color-border-default] pt-3">
           <div className="space-y-2 text-sm">
             <div>
               <span className="text-xs font-medium text-[--color-text-muted] uppercase tracking-wide">
@@ -114,7 +115,7 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
               <p className="mt-0.5 text-[--color-text-default]">{record.sent_content}</p>
             </div>
             {record.category && (
-              <div data-testid="category">
+              <div data-testid={TESTIDS.CATEGORY}>
                 <span className="text-xs font-medium text-[--color-text-muted] uppercase tracking-wide">
                   類別
                 </span>
@@ -124,7 +125,7 @@ export default function SentRecordCard({ record }: SentRecordCardProps) {
             {record.edited_by_user && (
               <div
                 className="text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded-sm px-2 py-1"
-                data-testid="edited-badge"
+                data-testid={TESTIDS.EDITED_BADGE}
               >
                 使用者在核准前編輯過此草稿
               </div>

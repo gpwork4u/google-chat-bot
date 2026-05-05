@@ -65,6 +65,15 @@ export const TESTIDS = {
   FACT_KEY: 'fact-key',
   FACT_VALUE: 'fact-value',
   FACT_VISIBILITY: 'fact-visibility',
+
+  // --- ApprovalsPage (F-002) page root ---
+  APPROVALS_PAGE: 'approvals-page',
+
+  // --- SentPage (F-003) page root + list ---
+  SENT_PAGE: 'sent-page',
+  SENT_LIST: 'sent-list',
+  SENT_FILTER_DATE_FROM: 'sent-filter-date-from',
+  SENT_FILTER_DATE_TO: 'sent-filter-date-to',
 } as const
 
 export type TestId = (typeof TESTIDS)[keyof typeof TESTIDS]
