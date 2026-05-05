@@ -85,7 +85,7 @@ PR 後**不等 review**，直接認領下一個。code-review agent 會在背景
 
 ## 工作流程
 
-### 第一步：讀取 Issue + Spec 檔案
+### 第一步：讀取 Issue + Spec 檔案 + Contracts
 
 ```bash
 # 讀取 issue
@@ -102,7 +102,20 @@ cat specs/overview.md
 
 # 讀取依賴圖譜（確認是否可以開工）
 cat specs/dependencies.md
+
+# 【重要】讀取 contracts — 所有 wire-level 細節的權威定義
+cat specs/contracts/api.md      # API path / JSON shape
+cat specs/contracts/dom.md      # data-testid
+cat specs/contracts/ux-text.md  # toast / label / error 文字
+cat web/src/contracts.ts        # frontend / qa 共用常數
 ```
+
+**Contract-First 原則**：
+- 所有 API path / `data-testid` / toast 文字必須**用 contract 內定義的常數**，不准 hardcode
+- 如果 contract 沒列你需要的東西：先 update contract 檔案 + 共用常數，再實作
+- **禁止**：自己取一個 testid 名稱（例 `sent-card`）但 contract 寫的是別的（`sent-record-card`）→ QA 測試會抓不到
+- **禁止**：自己改 toast 文字（例 spec 說「已送出」你寫「送出成功」）→ assertion 會失敗
+- 如果你發現 contract 有歧義或衝突，commit 不要急，先在 issue 上 comment 詢問 tech-lead 或自己改 contract（整個 sprint 看到同一份）
 
 如果是 bug issue：
 - 閱讀失敗的 scenario 和重現步驟

@@ -37,6 +37,9 @@ func draftsRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.H
 			handleDebugInjectDraft(w, r, nil, cfg, h)
 		})
 		registerSeedDraftsRoute(mux, db, cfg, h)
+		// Generic WS-event injection — used by QA BDD scenarios to push
+		// draft_created / draft_removed / settings_updated without a live Chat session.
+		registerInjectWsEventRoute(mux, h)
 	}
 }
 
