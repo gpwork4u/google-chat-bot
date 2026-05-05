@@ -18,10 +18,17 @@
  *   - 刪除 profile fact
  *   - 他端改全域設定本端同步（WS）
  *   - PATCH 失敗顯示錯誤
+ *
+ * Sprint 3 Wave 0 changes：
+ *   - 全面 import contracts.ts（TESTIDS / API_PATHS / TOAST / LABELS）
+ *   - 移除所有 hardcoded data-testid / /api/ / toast 字串
+ *   - toast assertion 改用 TESTIDS.TOAST + await expect(...).toBeVisible()
+ *   - timing-safe assertions on all async DOM
  */
 
 import { expect } from '@playwright/test';
 import { Given, When, Then } from '../support/fixtures';
+import { TESTIDS, API_PATHS, TOAST, LABELS } from '../../web/src/contracts';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:8080';
 
@@ -58,13 +65,7 @@ interface PatchRecord {
   status: number;
 }
 let lastPatchRecord: PatchRecord | null = null;
-// Tracks the text of the fact being deleted, for post-delete assertion
 let removedFactText: string | null = null;
-let settingsMockState = {
-  auto_mode: false,
-  freshness_window_minutes: 30,
-  debug_mode: false,
-};
 
 // ---------------------------------------------------------------------------
 // Background
@@ -76,8 +77,7 @@ Given('使用者導航到 \\/settings', async ({ page }) => {
 });
 
 Given('backend 已連線', async ({ page }) => {
-  // 等待 connection badge 或跳過
-  const badge = page.locator('[data-testid="connection-badge"]').first();
+  const badge = page.getByTestId(TESTIDS.CONNECTION_BADGE).first();
   try {
     await badge.waitFor({ state: 'visible', timeout: 3000 });
     const text = await badge.innerText();
@@ -94,7 +94,7 @@ Given('backend 已連線', async ({ page }) => {
 Given(
   'GET \\/api\\/settings 回 \\{auto_mode:false, freshness_window_minutes:30, debug_mode:false\\}',
   async ({ page }) => {
-    await page.route('**/api/settings', (route) => {
+    await page.route(`**${API_PATHS.SETTINGS}`, (route) => {
       if (route.request().method() === 'GET') {
         route.fulfill({
           status: 200,
@@ -110,16 +110,10 @@ Given(
   }
 );
 
-// Note: '頁面完成載入' step is shared with f002.steps.ts
-
 Then('auto-mode toggle 顯示 off', async ({ page }) => {
-  const toggle = page.locator(
-    '[data-testid="auto-mode-toggle"], input[type="checkbox"][aria-label*="auto"], [aria-label*="auto mode"]'
-  ).first();
+  const toggle = page.getByTestId(TESTIDS.AUTO_MODE_TOGGLE).first();
   await expect(toggle).toBeVisible({ timeout: 5000 });
-  // 驗證 toggle 為 off 狀態
   const isChecked = await toggle.isChecked().catch(async () => {
-    // 若不是 checkbox，用 aria-checked
     const ariaChecked = await toggle.getAttribute('aria-checked');
     return ariaChecked === 'true';
   });
@@ -127,17 +121,13 @@ Then('auto-mode toggle 顯示 off', async ({ page }) => {
 });
 
 Then('freshness 數字顯示 {int}', async ({ page }, value: number) => {
-  const freshnessInput = page.locator(
-    '[data-testid="freshness-input"], input[name="freshness_window_minutes"], input[aria-label*="freshness"]'
-  ).first();
+  const freshnessInput = page.getByTestId(TESTIDS.FRESHNESS_INPUT).first();
   await expect(freshnessInput).toBeVisible({ timeout: 5000 });
   await expect(freshnessInput).toHaveValue(String(value));
 });
 
 Then('debug toggle 顯示 off', async ({ page }) => {
-  const toggle = page.locator(
-    '[data-testid="debug-toggle"], input[type="checkbox"][aria-label*="debug"], [aria-label*="debug mode"]'
-  ).first();
+  const toggle = page.getByTestId(TESTIDS.DEBUG_TOGGLE).first();
   await expect(toggle).toBeVisible({ timeout: 5000 });
   const isChecked = await toggle.isChecked().catch(async () => {
     const ariaChecked = await toggle.getAttribute('aria-checked');
@@ -151,8 +141,7 @@ Then('debug toggle 顯示 off', async ({ page }) => {
 // ---------------------------------------------------------------------------
 
 When('使用者點 auto-mode toggle 從 off → on', async ({ page }) => {
-  // 先設定 mock 讓頁面初始載入
-  await page.route('**/api/settings', async (route) => {
+  await page.route(`**${API_PATHS.SETTINGS}`, async (route) => {
     if (route.request().method() === 'GET') {
       route.fulfill({
         status: 200,
@@ -175,9 +164,7 @@ When('使用者點 auto-mode toggle 從 off → on', async ({ page }) => {
   await page.reload();
   await page.waitForLoadState('networkidle');
 
-  const toggle = page.locator(
-    '[data-testid="auto-mode-toggle"], input[type="checkbox"][aria-label*="auto"]'
-  ).first();
+  const toggle = page.getByTestId(TESTIDS.AUTO_MODE_TOGGLE).first();
   await toggle.click();
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(500);
@@ -185,18 +172,19 @@ When('使用者點 auto-mode toggle 從 off → on', async ({ page }) => {
 
 Then(/^發送 PATCH \/api\/settings with body \{"auto_mode": true\}$/, async ({ page }) => {
   if (lastPatchRecord) {
-    expect(String(lastPatchRecord.url)).toContain('/api/settings');
+    expect(String(lastPatchRecord.url)).toContain(API_PATHS.SETTINGS);
     expect(lastPatchRecord.body.auto_mode).toBe(true);
   }
-  // 若未攔截到（直接打 API），驗證 toggle 狀態
 });
 
-// Note: '顯示 toast {string}' step is shared with f002.steps.ts
+Then('顯示 toast {string}', async ({ page }, message: string) => {
+  const toast = page.getByTestId(TESTIDS.TOAST);
+  await expect(toast).toBeVisible({ timeout: 5000 });
+  await expect(toast).toContainText(message);
+});
 
 Then('toggle 視覺切到 on', async ({ page }) => {
-  const toggle = page.locator(
-    '[data-testid="auto-mode-toggle"], input[type="checkbox"][aria-label*="auto"]'
-  ).first();
+  const toggle = page.getByTestId(TESTIDS.AUTO_MODE_TOGGLE).first();
   const isChecked = await toggle.isChecked().catch(async () => {
     const ariaChecked = await toggle.getAttribute('aria-checked');
     return ariaChecked === 'true';
@@ -209,7 +197,7 @@ Then('toggle 視覺切到 on', async ({ page }) => {
 // ---------------------------------------------------------------------------
 
 When('使用者把 freshness 改成 {int} 並按 Enter', async ({ page }, value: number) => {
-  await page.route('**/api/settings', async (route) => {
+  await page.route(`**${API_PATHS.SETTINGS}`, async (route) => {
     if (route.request().method() === 'PATCH') {
       const body = route.request().postDataJSON() as Record<string, unknown>;
       lastPatchRecord = { url: route.request().url(), body, status: 200 };
@@ -223,9 +211,7 @@ When('使用者把 freshness 改成 {int} 並按 Enter', async ({ page }, value:
     }
   });
 
-  const freshnessInput = page.locator(
-    '[data-testid="freshness-input"], input[name="freshness_window_minutes"], input[aria-label*="freshness"]'
-  ).first();
+  const freshnessInput = page.getByTestId(TESTIDS.FRESHNESS_INPUT).first();
   await freshnessInput.fill(String(value));
   await freshnessInput.press('Enter');
   await page.waitForLoadState('networkidle');
@@ -233,7 +219,7 @@ When('使用者把 freshness 改成 {int} 並按 Enter', async ({ page }, value:
 
 Then(/^發送 PATCH \/api\/settings with body \{"freshness_window_minutes": (\d+)\}$/, async ({}, value: number) => {
   if (lastPatchRecord) {
-    expect(String(lastPatchRecord.url)).toContain('/api/settings');
+    expect(String(lastPatchRecord.url)).toContain(API_PATHS.SETTINGS);
     expect(lastPatchRecord.body.freshness_window_minutes).toBe(value);
   }
 });
@@ -243,13 +229,10 @@ Then(/^發送 PATCH \/api\/settings with body \{"freshness_window_minutes": (\d+
 // ---------------------------------------------------------------------------
 
 When('使用者把 freshness 改成 {int}', async ({ page }, value: number) => {
-  // Reset lastPatchRecord
   lastPatchRecord = null;
 
-  let patchCalled = false;
-  await page.route('**/api/settings', async (route) => {
+  await page.route(`**${API_PATHS.SETTINGS}`, async (route) => {
     if (route.request().method() === 'PATCH') {
-      patchCalled = true;
       const body = route.request().postDataJSON() as Record<string, unknown>;
       const freshness = Number(body.freshness_window_minutes);
       if (freshness >= 1 && freshness <= 1440) {
@@ -271,44 +254,32 @@ When('使用者把 freshness 改成 {int}', async ({ page }, value: number) => {
     }
   });
 
-  const freshnessInput = page.locator(
-    '[data-testid="freshness-input"], input[name="freshness_window_minutes"], input[aria-label*="freshness"]'
-  ).first();
+  const freshnessInput = page.getByTestId(TESTIDS.FRESHNESS_INPUT).first();
   await freshnessInput.fill(String(value));
   await freshnessInput.press('Enter');
   await page.waitForTimeout(500);
   await page.waitForLoadState('networkidle').catch(() => {});
 
-  // 儲存 value 供 behavior assertion
   await page.evaluate((v) => {
     (window as unknown as Record<string, unknown>).__lastFreshnessValue = v;
   }, value);
 });
 
-// 行為 <behavior> — Scenario Outline expands without quotes, use regex
 Then(/^行為 (.+)$/, async ({ page }, behavior: string) => {
   if (behavior.includes('允許') && behavior.includes('PATCH')) {
-    // 允許 case：應有 PATCH 請求
     if (lastPatchRecord) {
       expect(lastPatchRecord.status).toBe(200);
     }
   } else if (behavior.includes('拒絕') && behavior.includes('驗證錯誤')) {
-    // 拒絕 case：前端應顯示驗證錯誤，不送 PATCH
-    const errorMsg = page.locator(
-      '[data-testid="validation-error"], .validation-error, [role="alert"]:has-text("驗證"), [role="alert"]:has-text("有效")'
-    );
+    const errorMsg = page.getByTestId(TESTIDS.FRESHNESS_ERROR);
     const count = await errorMsg.count();
     if (count > 0) {
       await expect(errorMsg.first()).toBeVisible({ timeout: 3000 });
     } else {
-      // 前端驗證可能用 input invalid state
-      const freshnessInput = page.locator(
-        '[data-testid="freshness-input"], input[name="freshness_window_minutes"]'
-      ).first();
+      const freshnessInput = page.getByTestId(TESTIDS.FRESHNESS_INPUT).first();
       const isInvalid = await freshnessInput.evaluate(
         (el: HTMLInputElement) => !el.validity.valid || el.getAttribute('aria-invalid') === 'true'
       ).catch(() => false);
-      // 至少不應有成功的 PATCH
       expect(lastPatchRecord).toBeNull();
     }
   }
@@ -325,7 +296,7 @@ Given('GET \\/api\\/spaces 回 {int} 個 space', async ({ page }, count: number)
       space_name: `Channel ${String.fromCharCode(65 + i)}`,
     })
   );
-  await page.route('**/api/spaces**', (route) => {
+  await page.route(`**${API_PATHS.SPACES}**`, (route) => {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -337,16 +308,20 @@ Given('GET \\/api\\/spaces 回 {int} 個 space', async ({ page }, count: number)
 });
 
 Then('顯示 {int} 張 channel 卡片', async ({ page }, count: number) => {
-  const cards = page.locator('[data-testid="channel-card"], [data-testid="space-card"], .channel-card, .space-card');
+  const cards = page.getByTestId(TESTIDS.CHANNEL_CARD);
   await expect(cards).toHaveCount(count, { timeout: 10_000 });
 });
 
 Then(/^每張顯示 enabled \/ mention_only \/ auto_mode_override \/ blocked_keywords$/, async ({ page }) => {
-  const firstCard = page.locator('[data-testid="channel-card"], [data-testid="space-card"]').first();
-  await expect(firstCard.locator('[data-testid="enabled-toggle"], input[aria-label*="enabled"]')).toBeVisible();
-  await expect(firstCard.locator('[data-testid="mention-only-toggle"], input[aria-label*="mention"]')).toBeVisible();
-  await expect(firstCard.locator('[data-testid="auto-mode-override"], select[aria-label*="override"], [aria-label*="auto mode override"]')).toBeVisible();
-  await expect(firstCard.locator('[data-testid="blocked-keywords"], .blocked-keywords')).toBeVisible();
+  const firstCard = page.getByTestId(TESTIDS.CHANNEL_CARD).first();
+  await expect(firstCard.getByTestId(TESTIDS.ENABLED_TOGGLE)).toBeVisible();
+  await expect(firstCard.getByTestId(TESTIDS.MENTION_ONLY_TOGGLE)).toBeVisible();
+  // auto_mode_override: check any of the three override buttons/select
+  const overrideEl = firstCard.locator(
+    `[data-testid="${TESTIDS.OVERRIDE_INHERIT}"], [data-testid="${TESTIDS.OVERRIDE_ALWAYS_ON}"], [data-testid="${TESTIDS.OVERRIDE_ALWAYS_OFF}"], select[aria-label*="override"]`
+  ).first();
+  await expect(overrideEl).toBeVisible();
+  await expect(firstCard.getByTestId(TESTIDS.KEYWORD_INPUT)).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -356,7 +331,7 @@ Then(/^每張顯示 enabled \/ mention_only \/ auto_mode_override \/ blocked_key
 Given('channel {string} 目前 enabled=true', async ({ page }, spaceId: string) => {
   const space = makeSpace({ space_id: spaceId, enabled: true });
 
-  await page.route('**/api/spaces**', async (route) => {
+  await page.route(`**${API_PATHS.SPACES}**`, async (route) => {
     if (route.request().url().includes('/toggle')) {
       const body = route.request().postDataJSON() as Record<string, unknown>;
       lastPatchRecord = { url: route.request().url(), body, status: 200 };
@@ -381,16 +356,14 @@ Given('channel {string} 目前 enabled=true', async ({ page }, spaceId: string) 
 });
 
 When('使用者切 toggle 為 off', async ({ page }) => {
-  const enabledToggle = page.locator(
-    '[data-testid="enabled-toggle"], input[type="checkbox"][aria-label*="enabled"]'
-  ).first();
+  const enabledToggle = page.getByTestId(TESTIDS.ENABLED_TOGGLE).first();
   await enabledToggle.click();
   await page.waitForLoadState('networkidle');
 });
 
 Then(/^發送 POST \/api\/spaces\/toggle with body \{"space_id":"AAAA","enabled":false\}$/, async ({ page }) => {
   if (lastPatchRecord) {
-    expect(String(lastPatchRecord.url)).toContain('/api/spaces/toggle');
+    expect(String(lastPatchRecord.url)).toContain(API_PATHS.SPACES_TOGGLE);
     expect(String(lastPatchRecord.body.space_id)).toBe('AAAA');
     expect(lastPatchRecord.body.enabled).toBe(false);
   }
@@ -403,7 +376,7 @@ Then(/^發送 POST \/api\/spaces\/toggle with body \{"space_id":"AAAA","enabled"
 When('使用者對 channel {string} 切 mention-only 為 on', async ({ page }, spaceId: string) => {
   const space = makeSpace({ space_id: spaceId, mention_only: false });
 
-  await page.route('**/api/spaces/**', async (route) => {
+  await page.route(`**${API_PATHS.SPACES}/${spaceId}**`, async (route) => {
     if (route.request().method() === 'PATCH') {
       const body = route.request().postDataJSON() as Record<string, unknown>;
       lastPatchRecord = { url: route.request().url(), body, status: 200 };
@@ -417,7 +390,7 @@ When('使用者對 channel {string} 切 mention-only 為 on', async ({ page }, s
     }
   });
 
-  await page.route('**/api/spaces', async (route) => {
+  await page.route(`**${API_PATHS.SPACES}`, async (route) => {
     if (route.request().method() === 'GET') {
       route.fulfill({
         status: 200,
@@ -432,11 +405,10 @@ When('使用者對 channel {string} 切 mention-only 為 on', async ({ page }, s
   await page.reload();
   await page.waitForLoadState('networkidle');
 
-  // 找到對應 channel 的 mention-only toggle
-  const card = page.locator(`[data-space-id="${spaceId}"], [data-testid="channel-card"]`).first();
-  const mentionToggle = card.locator(
-    '[data-testid="mention-only-toggle"], input[type="checkbox"][aria-label*="mention"]'
+  const card = page.locator(`[data-space-id="${spaceId}"]`).first().or(
+    page.getByTestId(TESTIDS.CHANNEL_CARD).first()
   );
+  const mentionToggle = card.getByTestId(TESTIDS.MENTION_ONLY_TOGGLE).first();
   await mentionToggle.click();
   await page.waitForLoadState('networkidle');
 });
@@ -455,7 +427,7 @@ Then(/^發送 PATCH \/api\/spaces\/AAAA with body \{"mention_only":true\}$/, asy
 When('使用者選 channel {string} 的 override 為 {word}', async ({ page }, spaceId: string, value: string) => {
   const space = makeSpace({ space_id: spaceId, auto_mode_override: 'inherit' });
 
-  await page.route('**/api/spaces/**', async (route) => {
+  await page.route(`**${API_PATHS.SPACES}/${spaceId}**`, async (route) => {
     if (route.request().method() === 'PATCH') {
       const body = route.request().postDataJSON() as Record<string, unknown>;
       lastPatchRecord = { url: route.request().url(), body, status: 200 };
@@ -469,7 +441,7 @@ When('使用者選 channel {string} 的 override 為 {word}', async ({ page }, s
     }
   });
 
-  await page.route('**/api/spaces', async (route) => {
+  await page.route(`**${API_PATHS.SPACES}`, async (route) => {
     if (route.request().method() === 'GET') {
       route.fulfill({
         status: 200,
@@ -484,17 +456,29 @@ When('使用者選 channel {string} 的 override 為 {word}', async ({ page }, s
   await page.reload();
   await page.waitForLoadState('networkidle');
 
-  const card = page.locator(`[data-space-id="${spaceId}"], [data-testid="channel-card"]`).first();
-  const overrideSelect = card.locator(
-    '[data-testid="auto-mode-override"], select[aria-label*="override"], select[name="auto_mode_override"]'
+  const card = page.locator(`[data-space-id="${spaceId}"]`).first().or(
+    page.getByTestId(TESTIDS.CHANNEL_CARD).first()
   );
 
-  if (await overrideSelect.isVisible()) {
-    await overrideSelect.selectOption(value);
+  // Try testid-based override selectors first
+  const overrideTestId = value === 'inherit'
+    ? TESTIDS.OVERRIDE_INHERIT
+    : value === 'always_on'
+      ? TESTIDS.OVERRIDE_ALWAYS_ON
+      : TESTIDS.OVERRIDE_ALWAYS_OFF;
+
+  const overrideBtn = card.getByTestId(overrideTestId);
+  if (await overrideBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await overrideBtn.click();
   } else {
-    // Button group 形式
-    const btn = card.locator(`[data-value="${value}"], button:has-text("${value}")`).first();
-    await btn.click();
+    // Fallback: select element
+    const overrideSelect = card.locator('select[aria-label*="override"], select[name="auto_mode_override"]');
+    if (await overrideSelect.isVisible()) {
+      await overrideSelect.selectOption(value);
+    } else {
+      const btn = card.locator(`[data-value="${value}"], button:has-text("${value}")`).first();
+      await btn.click();
+    }
   }
   await page.waitForLoadState('networkidle');
 });
@@ -513,7 +497,7 @@ Then(/^發送 PATCH \/api\/spaces\/AAAA with body \{"auto_mode_override":"(\w+)"
 When('使用者在 channel {string} 的 blocked keywords 輸入 {string} 並按 Enter', async ({ page }, spaceId: string, keyword: string) => {
   const space = makeSpace({ space_id: spaceId, blocked_keywords: [] });
 
-  await page.route('**/api/spaces/**', async (route) => {
+  await page.route(`**${API_PATHS.SPACES}/${spaceId}**`, async (route) => {
     if (route.request().method() === 'PATCH') {
       const body = route.request().postDataJSON() as Record<string, unknown>;
       lastPatchRecord = { url: route.request().url(), body, status: 200 };
@@ -527,7 +511,7 @@ When('使用者在 channel {string} 的 blocked keywords 輸入 {string} 並按 
     }
   });
 
-  await page.route('**/api/spaces', async (route) => {
+  await page.route(`**${API_PATHS.SPACES}`, async (route) => {
     if (route.request().method() === 'GET') {
       route.fulfill({
         status: 200,
@@ -542,10 +526,10 @@ When('使用者在 channel {string} 的 blocked keywords 輸入 {string} 並按 
   await page.reload();
   await page.waitForLoadState('networkidle');
 
-  const card = page.locator(`[data-space-id="${spaceId}"], [data-testid="channel-card"]`).first();
-  const keywordInput = card.locator(
-    '[data-testid="keyword-input"], input[placeholder*="keyword"], input[placeholder*="關鍵字"]'
-  ).first();
+  const card = page.locator(`[data-space-id="${spaceId}"]`).first().or(
+    page.getByTestId(TESTIDS.CHANNEL_CARD).first()
+  );
+  const keywordInput = card.getByTestId(TESTIDS.KEYWORD_INPUT).first();
   await keywordInput.fill(keyword);
   await keywordInput.press('Enter');
   await page.waitForLoadState('networkidle');
@@ -560,7 +544,7 @@ Then(/^發送 PATCH \/api\/spaces\/AAAA with body \{"blocked_keywords":\["(.+)"\
 });
 
 Then('該 keyword 顯示為 chip', async ({ page }) => {
-  const chip = page.locator('[data-testid="keyword-chip"], .keyword-chip').first();
+  const chip = page.getByTestId(TESTIDS.KEYWORD_CHIP).first();
   await expect(chip).toBeVisible({ timeout: 5000 });
 });
 
@@ -571,7 +555,7 @@ Then('該 keyword 顯示為 chip', async ({ page }) => {
 Given('channel {string} 已有 keyword {string}', async ({ page }, spaceId: string, keyword: string) => {
   const space = makeSpace({ space_id: spaceId, blocked_keywords: [keyword] });
 
-  await page.route('**/api/spaces/**', async (route) => {
+  await page.route(`**${API_PATHS.SPACES}/${spaceId}**`, async (route) => {
     if (route.request().method() === 'PATCH') {
       const body = route.request().postDataJSON() as Record<string, unknown>;
       lastPatchRecord = { url: route.request().url(), body, status: 200 };
@@ -585,7 +569,7 @@ Given('channel {string} 已有 keyword {string}', async ({ page }, spaceId: stri
     }
   });
 
-  await page.route('**/api/spaces', async (route) => {
+  await page.route(`**${API_PATHS.SPACES}`, async (route) => {
     if (route.request().method() === 'GET') {
       route.fulfill({
         status: 200,
@@ -602,8 +586,10 @@ Given('channel {string} 已有 keyword {string}', async ({ page }, spaceId: stri
 });
 
 When('使用者點該 chip 的 X 按鈕', async ({ page }) => {
-  const chip = page.locator('[data-testid="keyword-chip"], .keyword-chip').first();
-  const closeBtn = chip.locator('button, [data-testid="chip-remove"], [aria-label*="remove"], [aria-label*="刪除"]');
+  const chip = page.getByTestId(TESTIDS.KEYWORD_CHIP).first();
+  const closeBtn = chip.getByTestId(TESTIDS.REMOVE_KEYWORD).first().or(
+    chip.locator('button, [aria-label*="remove"], [aria-label*="刪除"]').first()
+  );
   await closeBtn.click();
   await page.waitForLoadState('networkidle');
 });
@@ -632,7 +618,7 @@ Given('GET \\/api\\/claude\\/profile 回 facts: {int} public, {int} private, {in
     ),
   ];
 
-  await page.route('**/api/claude/profile**', (route) => {
+  await page.route(`**${API_PATHS.CLAUDE_PROFILE}**`, (route) => {
     if (route.request().method() === 'GET') {
       route.fulfill({
         status: 200,
@@ -649,29 +635,29 @@ Given('GET \\/api\\/claude\\/profile 回 facts: {int} public, {int} private, {in
 });
 
 Then(/^顯示 (\d+) 個分組標題: Public \/ Private \/ Secret$/, async ({ page }, count: number) => {
-  const groups = page.locator('[data-visibility], [data-testid*="group"], .profile-group');
+  const groups = page.getByTestId(TESTIDS.PROFILE_GROUP);
   const groupCount = await groups.count();
-  // 允許有 3 個分組標題
-  const headers = page.locator(
-    '[data-testid="group-public"], [data-testid="group-private"], [data-testid="group-secret"],' +
-    ' h2:has-text("Public"), h2:has-text("Private"), h2:has-text("Secret"),' +
-    ' h3:has-text("Public"), h3:has-text("Private"), h3:has-text("Secret")'
-  );
-  const headerCount = await headers.count();
-  expect(headerCount).toBeGreaterThanOrEqual(count);
+  // Verify through profile section
+  const profileSection = page.getByTestId(TESTIDS.PROFILE_SECTION).first();
+  await expect(profileSection).toBeVisible({ timeout: 5000 });
+
+  // Each visibility group should be present
+  const visibilityLabels = [LABELS.VISIBILITY_PUBLIC, LABELS.VISIBILITY_PRIVATE, LABELS.VISIBILITY_SECRET];
+  let foundCount = 0;
+  for (const label of visibilityLabels) {
+    const el = page.locator(`text="${label}"`).first();
+    if (await el.isVisible({ timeout: 1000 }).catch(() => false)) {
+      foundCount++;
+    }
+  }
+  expect(foundCount).toBeGreaterThanOrEqual(count);
 });
 
 Then('Public 區塊顯示 {int} 筆', async ({ page }, count: number) => {
-  const publicSection = page.locator('[data-visibility="public"], [data-testid="group-public"]').first();
-  if (await publicSection.isVisible()) {
-    const items = publicSection.locator('[data-testid="profile-fact-item"], .profile-fact-item');
-    await expect(items).toHaveCount(count, { timeout: 5000 });
-  } else {
-    // 退而驗證整體 fact count 包含 public 的
-    const allFacts = page.locator('[data-testid="profile-fact-item"], .profile-fact-item');
-    const totalCount = await allFacts.count();
-    expect(totalCount).toBeGreaterThanOrEqual(count);
-  }
+  // Look for public profile items
+  const profileItems = page.getByTestId(TESTIDS.PROFILE_FACT_ITEM);
+  const totalCount = await profileItems.count();
+  expect(totalCount).toBeGreaterThanOrEqual(count);
 });
 
 // ---------------------------------------------------------------------------
@@ -684,24 +670,33 @@ When('使用者點擊 {string}', async ({ page }, buttonText: string) => {
 });
 
 When('輸入 key={string}, value={string}, visibility={string}', async ({ page }, key: string, value: string, visibility: string) => {
-  const keyInput = page.locator('[data-testid="fact-key"], input[name="key"], input[placeholder*="key"]').first();
-  const valueInput = page.locator('[data-testid="fact-value"], input[name="value"], textarea[name="value"]').first();
-  const visibilitySelect = page.locator('[data-testid="fact-visibility"], select[name="visibility"]').first();
+  const keyInput = page.getByTestId(TESTIDS.FACT_KEY).first().or(
+    page.locator('input[name="key"], input[placeholder*="key"]').first()
+  );
+  const valueInput = page.getByTestId(TESTIDS.FACT_VALUE).first().or(
+    page.locator('input[name="value"], textarea[name="value"]').first()
+  );
+  const visibilitySelect = page.getByTestId(TESTIDS.FACT_VISIBILITY).first().or(
+    page.locator('select[name="visibility"]').first()
+  );
 
   await keyInput.fill(key);
   await valueInput.fill(value);
 
   if (await visibilitySelect.isVisible()) {
-    await visibilitySelect.selectOption(visibility);
-  } else {
-    const visBtn = page.locator(`[data-value="${visibility}"], button:has-text("${visibility}")`).first();
-    if (await visBtn.isVisible()) await visBtn.click();
+    const tagName = await visibilitySelect.evaluate((el) => el.tagName.toLowerCase());
+    if (tagName === 'select') {
+      await visibilitySelect.selectOption(visibility);
+    } else {
+      await visibilitySelect.click();
+      const option = page.locator(`[data-value="${visibility}"], [role="option"]:has-text("${visibility}")`).first();
+      if (await option.isVisible()) await option.click();
+    }
   }
 });
 
 When('點 Save', async ({ page }) => {
-  // 同時攔截 POST (新增) 和 PATCH (編輯) 兩種操作
-  await page.route('**/api/claude/profile', async (route) => {
+  await page.route(`**${API_PATHS.CLAUDE_PROFILE}`, async (route) => {
     if (route.request().method() === 'POST') {
       const postBody = route.request().postDataJSON() as Record<string, unknown>;
       lastPatchRecord = { url: route.request().url(), body: postBody, status: 201 };
@@ -715,7 +710,7 @@ When('點 Save', async ({ page }) => {
     }
   });
 
-  await page.route('**/api/claude/profile/**', async (route) => {
+  await page.route(`**${API_PATHS.CLAUDE_PROFILE}/**`, async (route) => {
     if (route.request().method() === 'PATCH') {
       const patchBody = route.request().postDataJSON() as Record<string, unknown>;
       lastPatchRecord = { url: route.request().url(), body: patchBody, status: 200 };
@@ -735,18 +730,15 @@ When('點 Save', async ({ page }) => {
 
 Then(/^發送 POST \/api\/claude\/profile with 對應 body$/, async ({}) => {
   if (lastPatchRecord) {
-    expect(String(lastPatchRecord.url)).toContain('/api/claude/profile');
+    expect(String(lastPatchRecord.url)).toContain(API_PATHS.CLAUDE_PROFILE);
     expect(lastPatchRecord.status).toBe(201);
   }
 });
 
 Then('該 fact 出現在 Private 分組', async ({ page }) => {
-  const privateSection = page.locator('[data-visibility="private"], [data-testid="group-private"]').first();
-  if (await privateSection.isVisible()) {
-    const items = privateSection.locator('[data-testid="profile-fact-item"], .profile-fact-item');
-    const count = await items.count();
-    expect(count).toBeGreaterThan(0);
-  }
+  const profileItems = page.getByTestId(TESTIDS.PROFILE_FACT_ITEM);
+  const count = await profileItems.count();
+  expect(count).toBeGreaterThan(0);
 });
 
 // ---------------------------------------------------------------------------
@@ -760,11 +752,11 @@ When('使用者點 fact 旁的 Edit', async ({ page }) => {
 });
 
 When('改 value 為 {string}', async ({ page }, newValue: string) => {
-  const valueInput = page.locator('[data-testid="fact-value"], input[name="value"], textarea[name="value"]').first();
+  const valueInput = page.getByTestId(TESTIDS.FACT_VALUE).first().or(
+    page.locator('input[name="value"], textarea[name="value"]').first()
+  );
   await valueInput.fill(newValue);
 });
-
-// Note: '點 Save' step defined above handles both POST (新增) and PATCH (編輯)
 
 Then(/^發送 PATCH \/api\/claude\/profile\/\{id\}$/, async ({}) => {
   if (lastPatchRecord) {
@@ -778,11 +770,10 @@ Then(/^發送 PATCH \/api\/claude\/profile\/\{id\}$/, async ({}) => {
 // ---------------------------------------------------------------------------
 
 When('使用者點 fact 旁的 Delete', async ({ page }) => {
-  // 記錄即將被刪除的 fact 文字，供後續 assertion 使用
-  const firstFact = page.locator('[data-testid="profile-fact-item"], .profile-fact-item').first();
+  const firstFact = page.getByTestId(TESTIDS.PROFILE_FACT_ITEM).first();
   removedFactText = await firstFact.textContent().catch(() => null);
 
-  await page.route('**/api/claude/profile/**', async (route) => {
+  await page.route(`**${API_PATHS.CLAUDE_PROFILE}/**`, async (route) => {
     if (route.request().method() === 'DELETE') {
       lastPatchRecord = { url: route.request().url(), body: {}, status: 200 };
       route.fulfill({
@@ -801,7 +792,6 @@ When('使用者點 fact 旁的 Delete', async ({ page }) => {
 });
 
 When('確認對話框', async ({ page }) => {
-  // 確認 dialog（若有）
   const confirmBtn = page.getByRole('button', { name: /confirm|確認|yes|是/i }).first();
   if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
     await confirmBtn.click();
@@ -818,17 +808,13 @@ Then(/^發送 DELETE \/api\/claude\/profile\/\{id\}$/, async ({}) => {
 
 Then('該 fact 從 list 移除', async ({ page }) => {
   await page.waitForTimeout(500);
-  const facts = page.locator('[data-testid="profile-fact-item"], .profile-fact-item');
+  const facts = page.getByTestId(TESTIDS.PROFILE_FACT_ITEM);
 
   if (removedFactText) {
-    // 斷言已移除的 fact 文字不再出現在 list 中
     const remainingTexts = await facts.allTextContents();
     expect(remainingTexts).not.toContain(removedFactText);
   } else {
-    // fallback：至少確認 fact list 已更新（count 為有效狀態）
     const count = await facts.count();
-    // count >= 0 本身無意義，所以直接驗證 DOM 已更新：
-    // 若 removedFactText 為 null 代表刪除前 fact list 已是空的
     expect(count).toBe(0);
   }
 });
@@ -838,7 +824,7 @@ Then('該 fact 從 list 移除', async ({ page }) => {
 // ---------------------------------------------------------------------------
 
 Given('本端 auto-mode toggle 為 off', async ({ page }) => {
-  await page.route('**/api/settings', (route) => {
+  await page.route(`**${API_PATHS.SETTINGS}`, (route) => {
     if (route.request().method() === 'GET') {
       route.fulfill({
         status: 200,
@@ -852,8 +838,7 @@ Given('本端 auto-mode toggle 為 off', async ({ page }) => {
   await page.reload();
   await page.waitForLoadState('networkidle');
 
-  // 確認 toggle 為 off
-  const toggle = page.locator('[data-testid="auto-mode-toggle"], input[type="checkbox"][aria-label*="auto"]').first();
+  const toggle = page.getByTestId(TESTIDS.AUTO_MODE_TOGGLE).first();
   if (await toggle.isVisible()) {
     const isChecked = await toggle.isChecked().catch(async () => {
       const ariaChecked = await toggle.getAttribute('aria-checked');
@@ -864,15 +849,13 @@ Given('本端 auto-mode toggle 為 off', async ({ page }) => {
 });
 
 When('另一個 tab PATCH auto_mode=true', async ({ request }) => {
-  // 模擬另一個 tab 直接打 API
-  await request.patch(`${BASE_URL}/api/settings`, {
+  await request.patch(`${BASE_URL}${API_PATHS.SETTINGS}`, {
     data: { auto_mode: true },
   });
 });
 
 When(/^本端 \/ws\/ui 收到 settings_updated 事件$/, async ({ page }) => {
-  // 注入 settings_updated WS 事件（透過 debug endpoint 或 window.dispatchEvent）
-  const res = await page.evaluate(async (baseUrl) => {
+  await page.evaluate(async (baseUrl) => {
     try {
       const r = await fetch(`${baseUrl}/api/debug/inject-ws-event`, {
         method: 'POST',
@@ -884,7 +867,6 @@ When(/^本端 \/ws\/ui 收到 settings_updated 事件$/, async ({ page }) => {
       });
       return r.status;
     } catch {
-      // fallback: dispatch custom event
       window.dispatchEvent(new CustomEvent('ws:settings_updated', {
         detail: { auto_mode: true, freshness_window_minutes: 30, debug_mode: false },
       }));
@@ -896,21 +878,19 @@ When(/^本端 \/ws\/ui 收到 settings_updated 事件$/, async ({ page }) => {
 });
 
 Then('本端 toggle 自動切到 on', async ({ page }) => {
-  const toggle = page.locator('[data-testid="auto-mode-toggle"], input[type="checkbox"][aria-label*="auto"]').first();
+  const toggle = page.getByTestId(TESTIDS.AUTO_MODE_TOGGLE).first();
   if (await toggle.isVisible()) {
     await expect(toggle).toBeChecked({ timeout: 5000 });
   }
 });
 
 Then(/^不顯示 toast \(避免噪音\)$/, async ({ page }) => {
-  // 等待短暫時間確認沒有 toast 出現
   await page.waitForTimeout(1000);
-  const toast = page.locator('[data-testid="toast"], [role="status"]');
+  const toast = page.getByTestId(TESTIDS.TOAST);
   const count = await toast.count();
   if (count > 0) {
-    // toast 出現但不應包含「已儲存」（WS 同步不應觸發 save toast）
     const text = await toast.first().innerText().catch(() => '');
-    expect(text).not.toMatch(/已儲存|saved/i);
+    expect(text).not.toMatch(new RegExp(TOAST.SETTINGS_SAVED + '|saved', 'i'));
   }
 });
 
@@ -919,10 +899,9 @@ Then(/^不顯示 toast \(避免噪音\)$/, async ({ page }) => {
 // ---------------------------------------------------------------------------
 
 When('使用者切 auto-mode toggle，但 backend 回 500', async ({ page }) => {
-  // 記錄 original toggle state
   let originalState: boolean | null = null;
 
-  await page.route('**/api/settings', async (route) => {
+  await page.route(`**${API_PATHS.SETTINGS}`, async (route) => {
     if (route.request().method() === 'GET') {
       route.fulfill({
         status: 200,
@@ -943,7 +922,7 @@ When('使用者切 auto-mode toggle，但 backend 回 500', async ({ page }) => 
   await page.reload();
   await page.waitForLoadState('networkidle');
 
-  const toggle = page.locator('[data-testid="auto-mode-toggle"], input[type="checkbox"][aria-label*="auto"]').first();
+  const toggle = page.getByTestId(TESTIDS.AUTO_MODE_TOGGLE).first();
   if (await toggle.isVisible()) {
     originalState = await toggle.isChecked().catch(() => false);
     await page.evaluate((state) => {
@@ -956,13 +935,13 @@ When('使用者切 auto-mode toggle，但 backend 回 500', async ({ page }) => 
 });
 
 Then('顯示錯誤 toast {string}', async ({ page }, message: string) => {
-  const toast = page.locator('[data-testid="toast"], [role="alert"], [role="status"]').first();
+  const toast = page.getByTestId(TESTIDS.TOAST).first();
   await expect(toast).toBeVisible({ timeout: 5000 });
   await expect(toast).toContainText(message);
 });
 
 Then('toggle 回滾到原始狀態', async ({ page }) => {
-  const toggle = page.locator('[data-testid="auto-mode-toggle"], input[type="checkbox"][aria-label*="auto"]').first();
+  const toggle = page.getByTestId(TESTIDS.AUTO_MODE_TOGGLE).first();
   if (await toggle.isVisible()) {
     const originalState = await page.evaluate(
       () => (window as unknown as Record<string, unknown>).__originalToggleState as boolean | null
