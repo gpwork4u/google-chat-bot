@@ -453,12 +453,19 @@ type UserSettings struct {
 	AutoMode               bool   `json:"auto_mode"`
 	BlockedKeywords        string `json:"blocked_keywords"`
 	ReplyOnlyWhenMentioned bool   `json:"reply_only_when_mentioned"`
+	FreshnessWindowMinutes int    `json:"freshness_window_minutes"`
+	DebugMode              bool   `json:"debug_mode"`
 }
 
 func (db *DB) GetUserSettings(ctx context.Context, userID int64) (*UserSettings, error) {
-	const q = `SELECT user_id, auto_mode, blocked_keywords, reply_only_when_mentioned FROM user_settings WHERE user_id=$1`
+	const q = `SELECT user_id, auto_mode, blocked_keywords, reply_only_when_mentioned,
+	             COALESCE(freshness_window_minutes, 30), COALESCE(debug_mode, false)
+	           FROM user_settings WHERE user_id=$1`
 	var s UserSettings
-	err := db.QueryRow(ctx, q, userID).Scan(&s.UserID, &s.AutoMode, &s.BlockedKeywords, &s.ReplyOnlyWhenMentioned)
+	err := db.QueryRow(ctx, q, userID).Scan(
+		&s.UserID, &s.AutoMode, &s.BlockedKeywords, &s.ReplyOnlyWhenMentioned,
+		&s.FreshnessWindowMinutes, &s.DebugMode,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Create a default row.
 		_, err := db.Exec(ctx, `INSERT INTO user_settings(user_id) VALUES ($1) ON CONFLICT DO NOTHING`, userID)
@@ -468,6 +475,43 @@ func (db *DB) GetUserSettings(ctx context.Context, userID int64) (*UserSettings,
 		return db.GetUserSettings(ctx, userID)
 	}
 	return &s, err
+}
+
+// PatchSettingsRequest carries optional fields for partial PATCH /api/settings.
+type PatchSettingsRequest struct {
+	AutoMode               *bool `json:"auto_mode"`
+	FreshnessWindowMinutes *int  `json:"freshness_window_minutes"`
+	DebugMode              *bool `json:"debug_mode"`
+}
+
+// PatchUserSettings applies a partial update. Only non-nil fields are changed.
+func (db *DB) PatchUserSettings(ctx context.Context, userID int64, req PatchSettingsRequest) error {
+	// Ensure row exists.
+	if _, err := db.GetUserSettings(ctx, userID); err != nil {
+		return err
+	}
+	if req.AutoMode != nil {
+		if _, err := db.Exec(ctx,
+			`UPDATE user_settings SET auto_mode=$2, updated_at=NOW() WHERE user_id=$1`,
+			userID, *req.AutoMode); err != nil {
+			return err
+		}
+	}
+	if req.FreshnessWindowMinutes != nil {
+		if _, err := db.Exec(ctx,
+			`UPDATE user_settings SET freshness_window_minutes=$2, updated_at=NOW() WHERE user_id=$1`,
+			userID, *req.FreshnessWindowMinutes); err != nil {
+			return err
+		}
+	}
+	if req.DebugMode != nil {
+		if _, err := db.Exec(ctx,
+			`UPDATE user_settings SET debug_mode=$2, updated_at=NOW() WHERE user_id=$1`,
+			userID, *req.DebugMode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (db *DB) SetAutoMode(ctx context.Context, userID int64, on bool) error {

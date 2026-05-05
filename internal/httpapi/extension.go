@@ -53,6 +53,9 @@ func extensionRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hu
 	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) {
 		handleGetSettings(w, r, db, cfg)
 	})
+	mux.HandleFunc("PATCH /api/settings", func(w http.ResponseWriter, r *http.Request) {
+		handlePatchSettings(w, r, db, cfg, h)
+	})
 	mux.HandleFunc("POST /api/settings/auto-mode", func(w http.ResponseWriter, r *http.Request) {
 		handleSetAutoMode(w, r, db, cfg, h)
 	})
@@ -72,6 +75,9 @@ func extensionRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hu
 	})
 	mux.HandleFunc("POST /api/spaces/toggle", func(w http.ResponseWriter, r *http.Request) {
 		handleToggleSpace(w, r, db, cfg, h)
+	})
+	mux.HandleFunc("PATCH /api/spaces/{space_id}", func(w http.ResponseWriter, r *http.Request) {
+		handlePatchSpace(w, r, db, cfg, h)
 	})
 }
 
@@ -186,7 +192,9 @@ func handleListSpaces(w http.ResponseWriter, r *http.Request, db *store.DB, cfg 
 
 type toggleSpaceReq struct {
 	SpaceKey *string `json:"space_key"`
-	Disabled bool    `json:"disabled"`
+	SpaceID  *string `json:"space_id"` // alias for space_key (used by F-004 UI)
+	Disabled *bool   `json:"disabled"`
+	Enabled  *bool   `json:"enabled"` // inverse alias
 }
 
 func handleToggleSpace(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
@@ -201,19 +209,32 @@ func handleToggleSpace(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.SpaceKey == nil {
-		writeErr(w, http.StatusBadRequest, "space_key required")
+	// Accept either space_key or space_id.
+	spaceKey := ""
+	if req.SpaceKey != nil {
+		spaceKey = *req.SpaceKey
+	} else if req.SpaceID != nil {
+		spaceKey = *req.SpaceID
+	}
+	if spaceKey == "" {
+		writeErr(w, http.StatusBadRequest, "space_key or space_id required")
 		return
 	}
-	spaceKey := *req.SpaceKey
-	if err := db.UpsertSpaceDisabled(ctx, user.ID, spaceKey, req.Disabled); err != nil {
+	// Accept either disabled or enabled.
+	disabled := false
+	if req.Disabled != nil {
+		disabled = *req.Disabled
+	} else if req.Enabled != nil {
+		disabled = !*req.Enabled
+	}
+	if err := db.UpsertSpaceDisabled(ctx, user.ID, spaceKey, disabled); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if h != nil {
 		h.SpacesChanged()
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "space_key": spaceKey, "disabled": req.Disabled})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "space_key": spaceKey, "disabled": disabled})
 }
 
 // --- handlers ---
@@ -522,7 +543,133 @@ func handleGetSettings(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, s)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"auto_mode":                s.AutoMode,
+		"freshness_window_minutes": s.FreshnessWindowMinutes,
+		"debug_mode":               s.DebugMode,
+		"blocked_keywords":         s.BlockedKeywords,
+		"reply_only_when_mentioned": s.ReplyOnlyWhenMentioned,
+	})
+}
+
+type patchSettingsReq struct {
+	AutoMode               *bool `json:"auto_mode"`
+	FreshnessWindowMinutes *int  `json:"freshness_window_minutes"`
+	DebugMode              *bool `json:"debug_mode"`
+}
+
+func handlePatchSettings(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
+	var req patchSettingsReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.FreshnessWindowMinutes != nil {
+		v := *req.FreshnessWindowMinutes
+		if v < 1 || v > 1440 {
+			writeErr(w, http.StatusBadRequest, "INVALID_PARAM: freshness_window_minutes must be 1-1440")
+			return
+		}
+	}
+	ctx := r.Context()
+	user, err := requireLocalUser(ctx, db, cfg)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	patchReq := store.PatchSettingsRequest{
+		AutoMode:               req.AutoMode,
+		FreshnessWindowMinutes: req.FreshnessWindowMinutes,
+		DebugMode:              req.DebugMode,
+	}
+	if err := db.PatchUserSettings(ctx, user.ID, patchReq); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s, err := db.GetUserSettings(ctx, user.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	updated := map[string]any{
+		"auto_mode":                s.AutoMode,
+		"freshness_window_minutes": s.FreshnessWindowMinutes,
+		"debug_mode":               s.DebugMode,
+	}
+	if h != nil {
+		h.SettingsUpdated(updated)
+		h.SettingsChanged()
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+type patchSpaceReq struct {
+	MentionOnly        *bool    `json:"mention_only"`
+	AutoModeOverride   *string  `json:"auto_mode_override"`
+	BlockedKeywords    []string `json:"blocked_keywords"`
+}
+
+func handlePatchSpace(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
+	spaceID := r.PathValue("space_id")
+	if spaceID == "" {
+		writeErr(w, http.StatusBadRequest, "space_id required")
+		return
+	}
+	// Decode and detect presence of blocked_keywords key
+	raw := make(map[string]json.RawMessage)
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var req patchSpaceReq
+	hasBlockedKeywords := false
+	if v, ok := raw["mention_only"]; ok {
+		var b bool
+		if err := json.Unmarshal(v, &b); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid mention_only")
+			return
+		}
+		req.MentionOnly = &b
+	}
+	if v, ok := raw["auto_mode_override"]; ok {
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid auto_mode_override")
+			return
+		}
+		if s != "inherit" && s != "always_on" && s != "always_off" {
+			writeErr(w, http.StatusBadRequest, "auto_mode_override must be inherit|always_on|always_off")
+			return
+		}
+		req.AutoModeOverride = &s
+	}
+	if v, ok := raw["blocked_keywords"]; ok {
+		hasBlockedKeywords = true
+		if err := json.Unmarshal(v, &req.BlockedKeywords); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid blocked_keywords")
+			return
+		}
+	}
+	ctx := r.Context()
+	user, err := requireLocalUser(ctx, db, cfg)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	patchReq := store.PatchSpaceRequest{
+		MentionOnly:        req.MentionOnly,
+		AutoModeOverride:   req.AutoModeOverride,
+		BlockedKeywords:    req.BlockedKeywords,
+		HasBlockedKeywords: hasBlockedKeywords,
+	}
+	if err := db.PatchSpaceSettings(ctx, user.ID, spaceID, patchReq); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if h != nil {
+		h.SpacesChanged()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "space_id": spaceID})
 }
 
 type setAutoModeReq struct {

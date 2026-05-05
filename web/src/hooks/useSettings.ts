@@ -4,12 +4,11 @@ import { fetcher } from '../api/client'
 import { useWS } from '../ws/WebSocketProvider'
 
 // Settings shape returned by GET /api/settings.
-// The backend UserSettings currently exposes auto_mode, blocked_keywords, reply_only_when_mentioned.
-// F-004 will extend this; for now we type what exists.
+// F-004 extends this with freshness_window_minutes and debug_mode.
 export interface Settings {
   auto_mode: boolean
-  freshness_window_minutes?: number
-  debug_mode?: boolean
+  freshness_window_minutes: number
+  debug_mode: boolean
   blocked_keywords?: string
   reply_only_when_mentioned?: boolean
 }
