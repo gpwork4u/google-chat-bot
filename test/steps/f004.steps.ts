@@ -58,6 +58,8 @@ interface PatchRecord {
   status: number;
 }
 let lastPatchRecord: PatchRecord | null = null;
+// Tracks the text of the fact being deleted, for post-delete assertion
+let removedFactText: string | null = null;
 let settingsMockState = {
   auto_mode: false,
   freshness_window_minutes: 30,
@@ -776,6 +778,10 @@ Then(/^發送 PATCH \/api\/claude\/profile\/\{id\}$/, async ({}) => {
 // ---------------------------------------------------------------------------
 
 When('使用者點 fact 旁的 Delete', async ({ page }) => {
+  // 記錄即將被刪除的 fact 文字，供後續 assertion 使用
+  const firstFact = page.locator('[data-testid="profile-fact-item"], .profile-fact-item').first();
+  removedFactText = await firstFact.textContent().catch(() => null);
+
   await page.route('**/api/claude/profile/**', async (route) => {
     if (route.request().method() === 'DELETE') {
       lastPatchRecord = { url: route.request().url(), body: {}, status: 200 };
@@ -812,11 +818,19 @@ Then(/^發送 DELETE \/api\/claude\/profile\/\{id\}$/, async ({}) => {
 
 Then('該 fact 從 list 移除', async ({ page }) => {
   await page.waitForTimeout(500);
-  // 驗證 delete 後 facts 少了一筆（若有 data-fact-id 可更精確驗證）
   const facts = page.locator('[data-testid="profile-fact-item"], .profile-fact-item');
-  const count = await facts.count();
-  // 基本驗證：list 存在（即使是 0 筆）
-  expect(count).toBeGreaterThanOrEqual(0);
+
+  if (removedFactText) {
+    // 斷言已移除的 fact 文字不再出現在 list 中
+    const remainingTexts = await facts.allTextContents();
+    expect(remainingTexts).not.toContain(removedFactText);
+  } else {
+    // fallback：至少確認 fact list 已更新（count 為有效狀態）
+    const count = await facts.count();
+    // count >= 0 本身無意義，所以直接驗證 DOM 已更新：
+    // 若 removedFactText 為 null 代表刪除前 fact list 已是空的
+    expect(count).toBe(0);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -864,7 +878,7 @@ When(/^本端 \/ws\/ui 收到 settings_updated 事件$/, async ({ page }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          event: 'settings_updated',
+          type: 'settings_updated',
           settings: { auto_mode: true, freshness_window_minutes: 30, debug_mode: false },
         }),
       });

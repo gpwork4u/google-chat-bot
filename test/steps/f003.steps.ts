@@ -55,6 +55,9 @@ interface SentLogState {
   lastResponseBody?: Record<string, unknown>;
 }
 
+// Module-level array to capture intercepted request URLs across steps
+let capturedSentUrls: string[] = [];
+
 // ---------------------------------------------------------------------------
 // Background: 使用者已導航到 /sent
 // ---------------------------------------------------------------------------
@@ -163,7 +166,9 @@ Given(/^list 有 (\d+) 筆 approved \+ (\d+) 筆 auto$/, async ({ page }, approv
   // Store for route-based filtering
   const allItems = [...approvedItems, ...autoItems];
 
+  capturedSentUrls = [];
   await page.route('**/api/sent**', (route) => {
+    capturedSentUrls.push(route.request().url());
     const url = new URL(route.request().url());
     const modeFilter = url.searchParams.get('mode');
     const filtered = modeFilter ? allItems.filter((r) => r.mode === modeFilter) : allItems;
@@ -205,11 +210,12 @@ When('使用者選擇 filter {string}', async ({ page }, filterValue: string) =>
 });
 
 Then('發送 GET \\/api\\/sent?mode={word}', async ({ page }, mode: string) => {
-  // 驗證 URL 或攔截的請求含有 mode 參數
-  // 由 page.route 攔截已處理實際 filtering，這裡驗證 records count 正確
-  const records = page.locator('[data-record-id], [data-testid="sent-record"]');
-  const count = await records.count();
-  expect(count).toBeGreaterThan(0);
+  // 斷言 captured request URL 包含 mode=<value>
+  const matchingUrl = capturedSentUrls.find((u) => u.includes(`mode=${mode}`));
+  expect(
+    matchingUrl,
+    `Expected a request to /api/sent with mode=${mode}, but captured URLs were: ${capturedSentUrls.join(', ')}`
+  ).toBeTruthy();
 });
 
 Then('只顯示 {int} 筆', async ({ page }, count: number) => {
@@ -314,12 +320,10 @@ Given('使用者選擇 from={} to={}', async ({ page }, from: string, to: string
     makeSentRecord({ id: 'sent-range-2', sent_at: new Date(`${to}T10:00:00Z`).toISOString() }),
   ];
 
+  capturedSentUrls = [];
   await page.route('**/api/sent**', (route) => {
-    const url = new URL(route.request().url());
-    const reqFrom = url.searchParams.get('from');
-    const reqTo = url.searchParams.get('to');
-
-    // 驗證 from/to 是否正確（存到 window for later assertion）
+    capturedSentUrls.push(route.request().url());
+    // 驗證 from/to 是否正確（透過 capturedSentUrls 在後續 step 斷言）
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -337,9 +341,15 @@ Given('使用者選擇 from={} to={}', async ({ page }, from: string, to: string
   }
 });
 
-Then('請求包含 from={} 與 to={}', async ({ page }, from: string, to: string) => {
-  const records = page.locator('[data-record-id], [data-testid="sent-record"]');
-  await expect(records).toHaveCount(2, { timeout: 8000 });
+Then('請求包含 from={} 與 to={}', async ({}, from: string, to: string) => {
+  // 斷言 captured request URL 包含 from= 與 to= query params
+  const matchingUrl = capturedSentUrls.find((u) => u.includes('from=') && u.includes('to='));
+  expect(
+    matchingUrl,
+    `Expected a request to /api/sent with from= and to= params, but captured URLs were: ${capturedSentUrls.join(', ')}`
+  ).toBeTruthy();
+  expect(matchingUrl).toContain(`from=${from}`);
+  expect(matchingUrl).toContain(`to=${to}`);
 });
 
 Then('只顯示該區間記錄', async ({ page }) => {
@@ -461,7 +471,9 @@ Given('第一頁有 {int} 筆且回傳 next_cursor={string}', async ({ page }, c
     makeSentRecord({ id: `sent-page2-${i + 1}`, sent_content: `Page 2 record ${i + 1}` })
   );
 
+  capturedSentUrls = [];
   await page.route('**/api/sent**', (route) => {
+    capturedSentUrls.push(route.request().url());
     const url = new URL(route.request().url());
     const cursorParam = url.searchParams.get('cursor');
     if (cursorParam === cursor.replace(/^"/, '').replace(/"$/, '')) {
@@ -502,11 +514,13 @@ When('使用者捲動到底部 \\/ 點擊「載入更多」', async ({ page }) =
   await page.waitForLoadState('networkidle');
 });
 
-Then('發送 GET \\/api\\/sent?cursor=abc', async ({ page }) => {
-  // 驗證第二頁資料已加入
-  const records = page.locator('[data-record-id], [data-testid="sent-record"]');
-  const count = await records.count();
-  expect(count).toBeGreaterThan(50);
+Then('發送 GET \\/api\\/sent?cursor=abc', async ({}) => {
+  // 斷言 captured request URL 包含 cursor=abc
+  const matchingUrl = capturedSentUrls.find((u) => u.includes('cursor=abc'));
+  expect(
+    matchingUrl,
+    `Expected a request to /api/sent with cursor=abc, but captured URLs were: ${capturedSentUrls.join(', ')}`
+  ).toBeTruthy();
 });
 
 Then('新 {int} 筆 append 到既有 list', async ({ page }, newCount: number) => {
