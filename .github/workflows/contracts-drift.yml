@@ -1,0 +1,43 @@
+name: contracts-drift
+
+on:
+  pull_request:
+    paths:
+      - "internal/**/*.go"
+      - "web/src/contracts.generated.ts"
+      - "tygo.yaml"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install tygo
+        run: go install github.com/gzuidhof/tygo@latest
+
+      - name: Regenerate contracts
+        run: tygo generate
+
+      - name: Verify no drift
+        run: |
+          if ! git diff --exit-code web/src/contracts.generated.ts; then
+            echo "::error::contracts.generated.ts is stale. Run 'make contracts' and commit the updated file."
+            exit 1
+          fi
+
+      - name: Comment on PR if drift detected
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '⚠️ **contracts-drift detected**\n\nThe Go struct changes in this PR are not reflected in `web/src/contracts.generated.ts`.\n\nPlease run `make contracts` locally and commit the updated file:\n\n```sh\nmake contracts\ngit add web/src/contracts.generated.ts\ngit commit -m "chore: regenerate contracts"\n```'
+            })

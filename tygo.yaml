@@ -1,0 +1,6 @@
+packages:
+  - path: "github.com/ailabs-tw/google-chat-bot/internal/httpapi"
+    output_path: "web/src/contracts.generated.ts"
+    type_mappings:
+      "time.Time": "string /* ISO 8601 */"
+    frontmatter: "// Source: internal/httpapi/types.go\n// Run 'make contracts' to regenerate."

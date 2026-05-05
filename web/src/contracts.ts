@@ -13,11 +13,39 @@
  *   import { TESTIDS, TOAST } from '../../web/src/contracts'
  */
 
+// ─── Generated wire types (Go → TypeScript via tygo) ─────────────────────────
+// DO NOT hand-edit these types here. Edit internal/httpapi/types.go then run
+// `make contracts` to regenerate web/src/contracts.generated.ts.
+import type {
+  Settings,
+  Draft,
+  Space,
+  SentRecord,
+  ProfileFact,
+  Inbox,
+  ContextMessage,
+  DraftDebugInfo,
+} from './contracts.generated'
+export type {
+  Settings,
+  Draft,
+  Space,
+  SentRecord,
+  ProfileFact,
+  Inbox,
+  ContextMessage,
+  DraftDebugInfo,
+}
+
 // ─── Test IDs ───────────────────────────────────────────────────────────────
 // kebab-case strings matching data-testid attributes in the DOM.
 // See specs/contracts/dom.md for the full table with element types and context.
 
 export const TESTIDS = {
+  // --- ApprovalsPage (F-002) page-level ---
+  APPROVALS_PAGE: 'approvals-page',
+  APPROVAL_CARD: 'draft-card',
+
   // --- ApprovalsPage / ApprovalCard (F-002) ---
   DRAFT_CARD: 'draft-card',
   SPACE_NAME: 'space-name',
@@ -27,6 +55,14 @@ export const TESTIDS = {
   TOAST: 'toast',
   EMPTY_STATE: 'empty-state',
   ERROR_STATE: 'error-state',
+
+  // --- SentPage (F-003) page-level ---
+  SENT_PAGE: 'sent-page',
+  SENT_LIST: 'sent-list',
+  SENT_FILTER_MODE: 'mode-filter',
+  SENT_FILTER_SPACE: 'space-filter',
+  SENT_FILTER_DATE_FROM: 'sent-filter-date-from',
+  SENT_FILTER_DATE_TO: 'sent-filter-date-to',
 
   // --- SentPage / SentRecordCard (F-003) ---
   SENT_RECORD: 'sent-record',
@@ -39,6 +75,15 @@ export const TESTIDS = {
   SPACE_FILTER: 'space-filter',
   SEARCH_INPUT: 'search-input',
 
+  // --- SettingsPage (F-004) page-level ---
+  SETTINGS_PAGE: 'settings-page',
+  SETTINGS_GLOBAL_SECTION: 'global-section',
+  SETTINGS_CHANNELS_SECTION: 'channels-section',
+  SETTINGS_PROFILE_SECTION: 'profile-section',
+  SETTINGS_AUTO_MODE_TOGGLE: 'auto-mode-toggle',
+  SETTINGS_FRESHNESS_INPUT: 'freshness-input',
+  SETTINGS_DEBUG_TOGGLE: 'debug-toggle',
+
   // --- SettingsPage (F-004) global section ---
   GLOBAL_SECTION: 'global-section',
   AUTO_MODE_TOGGLE: 'auto-mode-toggle',
@@ -49,6 +94,10 @@ export const TESTIDS = {
   // --- SettingsPage (F-004) channels section ---
   CHANNELS_SECTION: 'channels-section',
   CHANNEL_CARD: 'channel-card',
+  CHANNEL_ENABLED_TOGGLE: 'enabled-toggle',
+  CHANNEL_MENTION_ONLY_TOGGLE: 'mention-only-toggle',
+  CHANNEL_AUTO_OVERRIDE_SELECT: 'channel-auto-override-select',
+  CHANNEL_BLOCKED_KEYWORDS_INPUT: 'keyword-input',
   ENABLED_TOGGLE: 'enabled-toggle',
   MENTION_ONLY_TOGGLE: 'mention-only-toggle',
   OVERRIDE_INHERIT: 'override-inherit',
@@ -61,6 +110,9 @@ export const TESTIDS = {
   // --- SettingsPage (F-004) profile section ---
   PROFILE_SECTION: 'profile-section',
   PROFILE_GROUP: 'profile-group',
+  PROFILE_GROUP_PUBLIC: 'profile-group-public',
+  PROFILE_GROUP_PRIVATE: 'profile-group-private',
+  PROFILE_GROUP_SECRET: 'profile-group-secret',
   PROFILE_FACT_ITEM: 'profile-fact-item',
   FACT_KEY: 'fact-key',
   FACT_VALUE: 'fact-value',
@@ -120,6 +172,10 @@ export const TOAST = {
   // SettingsPage — Settings PATCH
   SETTINGS_SAVED: '已儲存',
   SETTINGS_SAVE_FAILED: '儲存失敗，請重試',
+
+  // Aliases for f005 scenario references
+  SAVED: '已儲存',
+  SAVE_FAILED: '儲存失敗，請重試',
 
   // SettingsPage — Profile facts
   PROFILE_ADDED: '已新增',
