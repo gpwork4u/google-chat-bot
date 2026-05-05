@@ -227,7 +227,7 @@ Then('發送 PATCH \\/api\\/settings\\/auto-mode 或同等 endpoint', async ({ p
 });
 
 Then('toggle 視覺切換為 on', async ({ page }) => {
-  const toggle = page.locator('[data-testid="auto-mode-toggle"]').first();
+  const toggle = page.getByTestId(TESTIDS.AUTO_MODE_TOGGLE).first();
   // 確認 toggle 切換為 on 狀態（aria-checked 或 data attribute）
   const isChecked = await toggle.getAttribute('aria-checked');
   const dataState = await toggle.getAttribute('data-state');
