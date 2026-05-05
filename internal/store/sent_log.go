@@ -27,7 +27,7 @@ type SentLogRow struct {
 	SenderName     string    `json:"sender_name"`
 	TriggerMessage string    `json:"trigger_message"`
 	SentContent    string    `json:"sent_content"`
-	OriginalBody   string    `json:"original_body,omitempty"`
+	OriginalBody   string    `json:"-"`
 	Mode           string    `json:"mode"`  // "approved" | "auto"
 	EditedByUser   bool      `json:"edited_by_user"`
 	Category       string    `json:"category"`
@@ -77,7 +77,7 @@ func (db *DB) ListSentLog(ctx context.Context, userID int64, filter SentFilter, 
 	}
 
 	// Build WHERE clauses.
-	conds := []string{"d.status = 'sent'", "m.user_id = $1", "d.sent_at IS NOT NULL"}
+	conds := []string{"d.status IN ('sent', 'auto_sent')", "m.user_id = $1", "d.sent_at IS NOT NULL"}
 	args := []any{userID}
 	argN := 1
 

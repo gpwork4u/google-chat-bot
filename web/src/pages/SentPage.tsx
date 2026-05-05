@@ -1,7 +1,14 @@
 import { useRef, useCallback, useEffect } from 'react'
+import useSWR from 'swr'
 import { useSent } from '../hooks/useSent'
 import SentRecordCard from '../components/SentRecordCard'
 import { Search } from 'lucide-react'
+import { fetcher } from '../api/client'
+
+interface SpaceOption {
+  space_key: string
+  space_name: string
+}
 
 export default function SentPage() {
   const {
@@ -15,6 +22,17 @@ export default function SentPage() {
     isEmpty,
     loadMore,
   } = useSent()
+
+  // Fetch available spaces for the space filter multi-select.
+  const { data: spacesData } = useSWR<{ spaces: SpaceOption[] }>('/api/spaces', fetcher, {
+    revalidateOnFocus: false,
+  })
+  const spaceOptions = spacesData?.spaces ?? []
+
+  function handleSpaceFilterChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const selected = Array.from(e.target.selectedOptions).map(o => o.value)
+    updateFilter({ spaceIds: selected })
+  }
 
   // Debounced search: use a ref to track the pending timer.
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -84,6 +102,33 @@ export default function SentPage() {
             <option value="auto">自動送出</option>
           </select>
         </div>
+
+        {/* Space filter (multi-select) */}
+        {spaceOptions.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="space-filter"
+              className="text-xs font-medium text-[--color-text-muted]"
+            >
+              Space
+            </label>
+            <select
+              id="space-filter"
+              data-testid="space-filter"
+              multiple
+              size={Math.min(spaceOptions.length, 4)}
+              value={filter.spaceIds}
+              onChange={handleSpaceFilterChange}
+              className="text-sm border border-[--color-border-default] rounded-sm px-2 py-1 bg-[--color-surface-default] text-[--color-text-default] min-w-[140px]"
+            >
+              {spaceOptions.map(s => (
+                <option key={s.space_key} value={s.space_key}>
+                  {s.space_name || s.space_key}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Date from */}
         <div className="flex flex-col gap-1">
