@@ -3,11 +3,24 @@
 // so we don't need a broker; a map of channels with a mutex is enough.
 package hub
 
-import "sync"
+import (
+	"encoding/json"
+	"sync"
+)
 
 // UIEvent is delivered to web-UI WebSocket clients.
+//
+// Type values:
+//   - Legacy (notification-only): "inbox_changed" | "settings_changed" | "spaces_changed"
+//   - New (payload-bearing):      "draft_created" | "draft_removed" | "settings_updated"
+//
+// Sprint 3 will remove the legacy types; during Sprint 2 both coexist for
+// backward-compat (ApprovalsPage still uses inbox_changed via SWR refetch).
 type UIEvent struct {
-	Type string `json:"type"` // "inbox_changed" | "settings_changed" | "spaces_changed"
+	Type     string          `json:"type"`
+	Draft    json.RawMessage `json:"draft,omitempty"`    // for draft_created: full draft object
+	DraftID  string          `json:"draft_id,omitempty"` // for draft_removed: string to allow symbolic IDs
+	Settings json.RawMessage `json:"settings,omitempty"` // for settings_updated
 }
 
 // ExtEvent is delivered to extension WebSocket clients.
@@ -129,9 +142,42 @@ func (h *Hub) PublishExt(ev ExtEvent) {
 
 // convenience helpers — keep the shape consistent at call sites.
 
+// --- Legacy notification-only helpers (backward compat; Sprint 3 will clean up) ---
+
 func (h *Hub) InboxChanged()    { h.PublishUI(UIEvent{Type: "inbox_changed"}) }
 func (h *Hub) SettingsChanged() { h.PublishUI(UIEvent{Type: "settings_changed"}) }
 func (h *Hub) SpacesChanged()   { h.PublishUI(UIEvent{Type: "spaces_changed"}) }
+
+// --- New payload-bearing helpers ---
+
+// DraftCreated broadcasts a draft_created event containing the full draft
+// object as JSON. d must be JSON-serialisable.
+func (h *Hub) DraftCreated(d any) {
+	raw, err := json.Marshal(d)
+	if err != nil {
+		return
+	}
+	h.PublishUI(UIEvent{Type: "draft_created", Draft: raw})
+}
+
+// DraftRemoved broadcasts a draft_removed event. id is kept as a string so
+// it can carry either a numeric DB id or a symbolic test id like "draft-ws-new".
+func (h *Hub) DraftRemoved(id string) {
+	if id == "" {
+		return
+	}
+	h.PublishUI(UIEvent{Type: "draft_removed", DraftID: id})
+}
+
+// SettingsUpdated broadcasts a settings_updated event containing the full
+// settings object as JSON. s must be JSON-serialisable.
+func (h *Hub) SettingsUpdated(s any) {
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return
+	}
+	h.PublishUI(UIEvent{Type: "settings_updated", Settings: raw})
+}
 
 // ActivityBump is shorthand for "a new message just arrived" — the inbox
 // obviously needs to refresh, and so does the Channel 設定 list (a

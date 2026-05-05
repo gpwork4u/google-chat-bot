@@ -499,6 +499,9 @@ func handleDraftAction(w http.ResponseWriter, r *http.Request, db *store.DB, new
 		return
 	}
 	if h != nil {
+		// Payload-bearing event: tell the UI which draft was removed.
+		h.DraftRemoved(strconv.FormatInt(id, 10))
+		// Legacy notification-only event kept for backward compat (ApprovalsPage SWR).
 		h.InboxChanged()
 		if newStatus == "approved" {
 			pushPendingForUser(r.Context(), db, h)
@@ -547,6 +550,9 @@ func handleSetMentionOnly(w http.ResponseWriter, r *http.Request, db *store.DB, 
 		return
 	}
 	if h != nil {
+		// Payload-bearing event with the new settings value.
+		h.SettingsUpdated(map[string]any{"mention_only": req.MentionOnly})
+		// Legacy notification-only event kept for backward compat.
 		h.SettingsChanged()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "mention_only": req.MentionOnly})
@@ -569,6 +575,9 @@ func handleSetAutoMode(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 		return
 	}
 	if h != nil {
+		// Payload-bearing event with the new settings value.
+		h.SettingsUpdated(map[string]any{"auto_mode": req.AutoMode})
+		// Legacy notification-only event kept for backward compat.
 		h.SettingsChanged()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "auto_mode": req.AutoMode})
