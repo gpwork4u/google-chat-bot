@@ -71,6 +71,26 @@
   --color-info-default:     oklch(0.58 0.150 220);
   --color-info-strong:      oklch(0.44 0.160 220);
 
+  /* ── Mode Badge Colors（Sprint 2 新增）───────────────── */
+  /* sent log 的 approved / auto mode badge */
+  --color-mode-approved-bg:      oklch(0.93 0.040 220);   /* blue-50 tone */
+  --color-mode-approved-text:    oklch(0.38 0.160 220);   /* blue-700 tone */
+  --color-mode-approved-border:  oklch(0.80 0.080 220);
+
+  --color-mode-auto-bg:          oklch(0.97 0.060 85);    /* amber-50 tone */
+  --color-mode-auto-text:        oklch(0.50 0.160 70);    /* amber-700 tone */
+  --color-mode-auto-border:      oklch(0.82 0.110 80);
+
+  /* ── Toast Colors（Sprint 2 新增）─────────────────────── */
+  /* Toast 使用深色 surface（dark-on-dark inverse），無論 light/dark mode 皆統一 */
+  --color-toast-success-bg:      oklch(0.22 0.055 145);
+  --color-toast-success-text:    oklch(0.92 0.040 145);
+  --color-toast-success-icon:    oklch(0.65 0.150 145);
+
+  --color-toast-error-bg:        oklch(0.22 0.055 25);
+  --color-toast-error-text:      oklch(0.95 0.030 25);
+  --color-toast-error-icon:      oklch(0.65 0.200 25);
+
   /* ── Category Badge Colors ───────────────────────────── */
   /* 四類對應 categorize.md：daily-chat / work-coordination / engineering / skip */
   --color-category-chat-bg:      oklch(0.94 0.040 264);   /* indigo-50 tone */
@@ -131,4 +151,15 @@
   --color-category-skip-bg:      var(--color-neutral-800);
   --color-category-skip-text:    var(--color-neutral-400);
   --color-category-skip-border:  var(--color-neutral-700);
+
+  /* Mode Badge — dark mode */
+  --color-mode-approved-bg:      oklch(0.22 0.050 220);
+  --color-mode-approved-text:    oklch(0.75 0.110 220);
+  --color-mode-approved-border:  oklch(0.35 0.080 220);
+
+  --color-mode-auto-bg:          oklch(0.22 0.060 85);
+  --color-mode-auto-text:        oklch(0.78 0.130 80);
+  --color-mode-auto-border:      oklch(0.35 0.100 80);
+
+  /* Toast — dark mode 同 light（toast 本身用深色 surface，已是 dark） */
 }
