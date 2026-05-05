@@ -84,6 +84,28 @@ cat specs/tech-survey.md
 2. **再看細節**：逐檔案檢查程式碼品質和安全性
 3. **最後比對 spec**：確認所有 scenario 都有對應實作
 
+#### Contract Compliance 檢查（**必檢，避免 BDD 大量 fail**）
+
+讀 `specs/contracts/api.md`、`specs/contracts/dom.md`、`specs/contracts/ux-text.md`、`web/src/contracts.ts`。然後對照 PR diff 檢查：
+
+1. **新增 API endpoint**：path / method / JSON shape 是否在 `specs/contracts/api.md` 列出？
+   - 如果 PR 新增了 contract 沒列的 endpoint → REQUEST_CHANGES（要求補 contract）
+   - 如果 PR 改了 contract 列的 endpoint shape → REQUEST_CHANGES（要求同步更新 contract + 通知所有相關 lane）
+
+2. **新增 / 改動 `data-testid`**：是否來自 `contracts.ts.TESTIDS`？
+   - hardcode 字串 like `data-testid="sent-card"` → REQUEST_CHANGES，要求改成 `data-testid={TESTIDS.sentRecordCard}` 並 align contract
+
+3. **toast / label / error 文字**：是否來自 `contracts.ts.TOAST`？
+   - hardcode 中文字串 → REQUEST_CHANGES（除非是 component 裡的純展示文字，testable 的訊息一律走常數）
+
+4. **API path 字串**：是否來自 `contracts.ts.API_PATHS`？
+   - frontend `fetch('/api/sent')` 應為 `fetch(API_PATHS.sentList)`
+   - backend route handler 同樣
+
+5. **跨 PR 影響**：本 PR 改 contract 的話，列出哪些既有檔案/PR 受影響，要求 PR 描述明確標註並 cc 相關 lane
+
+**找到 contract 違反**：直接 REQUEST_CHANGES，列出每處違反的檔案行號 + 該用的常數。這比後續 BDD fail 才修便宜很多。
+
 ### 第四步：提交 Review
 
 #### 情況 A：通過（無重大問題）
