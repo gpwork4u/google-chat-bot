@@ -449,10 +449,10 @@ func (db *DB) GetDraft(ctx context.Context, id int64) (*Draft, error) {
 // --- settings ---
 
 type UserSettings struct {
-	UserID                 int64
-	AutoMode               bool
-	BlockedKeywords        string
-	ReplyOnlyWhenMentioned bool
+	UserID                 int64  `json:"user_id"`
+	AutoMode               bool   `json:"auto_mode"`
+	BlockedKeywords        string `json:"blocked_keywords"`
+	ReplyOnlyWhenMentioned bool   `json:"reply_only_when_mentioned"`
 }
 
 func (db *DB) GetUserSettings(ctx context.Context, userID int64) (*UserSettings, error) {

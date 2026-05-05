@@ -42,6 +42,9 @@ log() { printf '\n=== %s ===\n' "$*"; }
 fail() { echo "❌ $*" >&2; exit 1; }
 
 # ---- 1. 啟動 docker（除非略過）----
+GO_SERVER_PID=""
+GO_SERVER_LOG="$REPORT_DIR/go-server.log"
+
 if [ "${SKIP_DOCKER:-0}" != "1" ]; then
   [ -n "$COMPOSE_DIR" ] || fail "找不到 docker-compose 設定（dev/ 或 root）"
   log "Starting docker compose ($COMPOSE_DIR)"
@@ -49,21 +52,58 @@ if [ "${SKIP_DOCKER:-0}" != "1" ]; then
     { [ -f docker-compose.yml ] || cp docker-compose.example.yml docker-compose.yml; } && \
     { [ -f .env ] || [ ! -f .env.example ] || cp .env.example .env; } && \
     docker compose up -d --build )
+fi
 
-  if [ "${SKIP_HEALTH:-0}" != "1" ]; then
-    log "Waiting for health check at $BASE_URL/health"
-    for i in $(seq 1 30); do
-      if curl -sf "$BASE_URL/health" > /dev/null 2>&1; then
-        echo "✅ Services ready"
-        break
-      fi
-      [ "$i" = "30" ] && fail "Service health check timeout"
-      printf '.'; sleep 2
-    done
+# ---- 1b. 啟動 Go server（除非已在跑）----
+# BASE_URL 例如 http://localhost:3000 → port=3000
+PORT=$(echo "$BASE_URL" | sed -E 's|.*://[^:]+:?([0-9]*).*|\1|')
+PORT="${PORT:-3000}"
+
+if [ -f go.mod ] && [ "${SKIP_GO_SERVER:-0}" != "1" ]; then
+  if curl -sf "$BASE_URL/health" > /dev/null 2>&1 && curl -sf "$BASE_URL/api/settings" > /dev/null 2>&1; then
+    echo "✅ Go server 已在 $BASE_URL 運行，跳過啟動"
+  else
+    log "Starting Go server on :$PORT"
+    [ -f .env ] || [ ! -f .env.example ] || cp .env.example .env
+    # 載入 .env
+    set -a; [ -f .env ] && . ./.env; set +a
+    : "${DATABASE_URL:=postgres://chatbot:chatbot@localhost:2345/chatbot?sslmode=disable}"
+    : "${LOCAL_USER_EMAIL:=qa@example.com}"
+    : "${LOCAL_USER_NAME:=QA Tester}"
+    export DATABASE_URL LOCAL_USER_EMAIL LOCAL_USER_NAME
+    export HTTP_ADDR=":$PORT"
+    export INJECT_DRAFT_ENABLED=1
+    export NODE_ENV=development
+    : > "$GO_SERVER_LOG"
+    go run ./cmd/server > "$GO_SERVER_LOG" 2>&1 &
+    GO_SERVER_PID=$!
+    echo "Go server PID=$GO_SERVER_PID, log=$GO_SERVER_LOG"
   fi
 fi
 
+if [ "${SKIP_HEALTH:-0}" != "1" ]; then
+  log "Waiting for health check at $BASE_URL/health"
+  for i in $(seq 1 60); do
+    if curl -sf "$BASE_URL/health" > /dev/null 2>&1 && curl -sf "$BASE_URL/api/settings" > /dev/null 2>&1; then
+      echo "✅ Services ready"
+      break
+    fi
+    if [ -n "$GO_SERVER_PID" ] && ! kill -0 "$GO_SERVER_PID" 2>/dev/null; then
+      echo "❌ Go server crashed — log:"
+      tail -40 "$GO_SERVER_LOG"
+      fail "Go server 啟動失敗"
+    fi
+    [ "$i" = "60" ] && { tail -40 "$GO_SERVER_LOG" 2>/dev/null; fail "Service health check timeout at $BASE_URL"; }
+    printf '.'; sleep 2
+  done
+fi
+
 cleanup() {
+  if [ -n "$GO_SERVER_PID" ] && kill -0 "$GO_SERVER_PID" 2>/dev/null; then
+    log "Stopping Go server (PID=$GO_SERVER_PID)"
+    kill "$GO_SERVER_PID" 2>/dev/null || true
+    wait "$GO_SERVER_PID" 2>/dev/null || true
+  fi
   if [ "${SKIP_DOCKER:-0}" != "1" ] && [ -n "$COMPOSE_DIR" ]; then
     log "Stopping docker compose"
     ( cd "$COMPOSE_DIR" && docker compose down ) || true
@@ -98,7 +138,8 @@ REPORT_JSON="$REPORT_DIR/cucumber.json"
 HTML_REPORT="$REPORT_DIR/playwright-report"
 (
   cd test && \
-  BASE_URL="$BASE_URL" npx bddgen && \
+  BASE_URL="$BASE_URL" npx bddgen; \
+  # bddgen exits 非 0 當有 missing step definitions（未來 sprint feature）；不阻擋 playwright
   BASE_URL="$BASE_URL" npx playwright test \
     --reporter=json,html \
     --output="../$SCREENSHOT_DIR" \

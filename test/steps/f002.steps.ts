@@ -125,10 +125,16 @@ Then('每張卡片顯示 space_name \\/ sender_name \\/ draft_content \\/ catego
 // Scenario: 直接 Approve 送出原始草稿
 // ---------------------------------------------------------------------------
 
-Given('第一張 draft 內容為 {string}', async ({ page }, content: string) => {
-  // 確認第一張卡片的 textarea 內容
-  const firstCard = page.locator('[data-testid="draft-card"]').first();
-  const textarea = firstCard.locator('textarea, [data-testid="draft-textarea"]');
+Given('第一張 draft 內容為 {string}', async ({ page, request }, content: string) => {
+  // 若 list 為空則 seed 一張，再 reload 等待出現
+  const card = page.locator('[data-testid="draft-card"]').first();
+  if ((await card.count()) === 0) {
+    await trySeedDrafts(request, [makeDraft({ id: 'draft-firstcontent', draft_content: content })]);
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await page.waitForSelector('[data-testid="draft-card"]', { timeout: 10_000 });
+  }
+  const textarea = page.locator('[data-testid="draft-card"]').first().locator('textarea, [data-testid="draft-textarea"]');
   await expect(textarea).toHaveValue(content);
 });
 
@@ -208,9 +214,15 @@ Then('顯示成功 toast {string}', async ({ page }, message: string) => {
 // Scenario: 編輯後 Approve
 // ---------------------------------------------------------------------------
 
-Given('第一張 draft 原內容為 {string}', async ({ page }, originalContent: string) => {
-  const firstCard = page.locator('[data-testid="draft-card"]').first();
-  const textarea = firstCard.locator('textarea, [data-testid="draft-textarea"]');
+Given('第一張 draft 原內容為 {string}', async ({ page, request }, originalContent: string) => {
+  const card = page.locator('[data-testid="draft-card"]').first();
+  if ((await card.count()) === 0) {
+    await trySeedDrafts(request, [makeDraft({ id: 'draft-orig', draft_content: originalContent })]);
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await page.waitForSelector('[data-testid="draft-card"]', { timeout: 10_000 });
+  }
+  const textarea = page.locator('[data-testid="draft-card"]').first().locator('textarea, [data-testid="draft-textarea"]');
   await expect(textarea).toHaveValue(originalContent);
 });
 
@@ -244,8 +256,15 @@ Then('卡片從 list 移除', async ({ page }) => {
 // Scenario: Reject 丟棄
 // ---------------------------------------------------------------------------
 
-When('使用者點擊第一張卡片的 Reject 按鈕', async ({ page }) => {
-  const firstCard = page.locator('[data-testid="draft-card"]').first();
+When('使用者點擊第一張卡片的 Reject 按鈕', async ({ page, request }) => {
+  let firstCard = page.locator('[data-testid="draft-card"]').first();
+  if ((await firstCard.count()) === 0) {
+    await trySeedDrafts(request, [makeDraft({ id: 'draft-reject', draft_content: '待拒絕草稿' })]);
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await page.waitForSelector('[data-testid="draft-card"]', { timeout: 10_000 });
+    firstCard = page.locator('[data-testid="draft-card"]').first();
+  }
   const draftId = await firstCard.getAttribute('data-draft-id');
   if (draftId) {
     await page.evaluate((id) => { (window as unknown as Record<string, unknown>).__lastDraftId = id; }, draftId);
@@ -457,9 +476,17 @@ Then('顯示文案 {string}', async ({ page }, text: string) => {
 // ---------------------------------------------------------------------------
 
 Given('backend \\/api\\/inbox 回 500', async ({ page }) => {
-  // 攔截 /api/inbox 請求，強制回 500
+  // 攔截 inbox 與 drafts 列表請求，強制回 500
+  // (frontend 實作可能用 /api/inbox 或 /api/drafts 作為主資料源)
   await page.route('**/api/inbox', (route) => {
     route.fulfill({ status: 500, body: JSON.stringify({ error: 'internal server error' }) });
+  });
+  await page.route('**/api/drafts*', (route) => {
+    if (route.request().url().includes('/api/drafts/')) {
+      route.continue();
+    } else {
+      route.fulfill({ status: 500, body: JSON.stringify({ error: 'internal server error' }) });
+    }
   });
 });
 
@@ -478,6 +505,7 @@ Then('顯示錯誤狀態 + retry 按鈕', async ({ page }) => {
 When('使用者點 retry', async ({ page }) => {
   // 先解除攔截，讓下次請求正常
   await page.unroute('**/api/inbox');
+  await page.unroute('**/api/drafts*');
   const retryBtn = page.getByRole('button', { name: /retry|重試|重新載入/i });
   await retryBtn.click();
   await page.waitForLoadState('networkidle');

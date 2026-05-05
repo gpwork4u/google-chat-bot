@@ -65,7 +65,15 @@ Then('頂部 nav 顯示「Approvals \\/ Sent \\/ Settings」三個連結', async
 // Scenario: 分頁可訪問
 // ---------------------------------------------------------------------------
 
+async function ensureAppLoaded(page: import('@playwright/test').Page) {
+  if (page.url() === 'about:blank' || !page.url().startsWith(BASE_URL)) {
+    await page.goto(`${BASE_URL}/`);
+    await page.waitForLoadState('networkidle');
+  }
+}
+
 When('使用者點擊頂部 nav 的 {string}', async ({ page }, linkName: string) => {
+  await ensureAppLoaded(page);
   const nav = page.locator('nav');
   await nav.getByRole('link', { name: new RegExp(linkName, 'i') }).click();
   await page.waitForLoadState('networkidle');
@@ -152,9 +160,9 @@ Then('connection badge 變成「離線」於 5 秒內', async ({ page }) => {
 // ---------------------------------------------------------------------------
 
 Given('backend 目前 auto_mode=false', async ({ request }) => {
-  // 嘗試重置 auto_mode 為 false；endpoint 尚未確定，用最可能的路徑
+  // 重置 auto_mode 為 false（backend 用 POST）
   try {
-    const res = await request.patch(`${BASE_URL}/api/settings/auto-mode`, {
+    const res = await request.post(`${BASE_URL}/api/settings/auto-mode`, {
       data: { auto_mode: false },
     });
     // 接受 200 或 404（尚未實作時）
@@ -165,6 +173,7 @@ Given('backend 目前 auto_mode=false', async ({ request }) => {
 });
 
 When('使用者點擊頂部 nav 的 auto-mode toggle', async ({ page }) => {
+  await ensureAppLoaded(page);
   const toggle = page.locator('[data-testid="auto-mode-toggle"], [aria-label*="auto"], [aria-label*="Auto"]').first();
   // 在點擊前設定 request 攔截，記錄 PATCH /api/settings/auto-mode 的呼叫
   const autoModeRequestPromise = page.waitForRequest(
