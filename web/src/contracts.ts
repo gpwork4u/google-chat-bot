@@ -240,4 +240,7 @@ export const LABELS = {
   // ApprovalCard safety badge (F-008)
   SAFETY_BADGE_MONEY: '⚠️ 金錢內容',
   SAFETY_BADGE_PREFIX: '⚠️',
+  SAFETY_BADGE_LABEL: '安全護欄',
+  SAFETY_FLAG_MONEY: '金錢',
+  SAFETY_BADGE_ARIA_LABEL: '安全護欄警示，點擊查看觸發原因',
 } as const
