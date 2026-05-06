@@ -56,7 +56,7 @@ export function SafetyBadge({
           className="inline-flex items-center px-1 rounded-xs text-2xs font-medium bg-[--color-safety-badge-chip-bg]"
           aria-hidden="true"
         >
-          {flag === 'money' ? LABELS.SAFETY_BADGE_MONEY : (FLAG_LABELS[flag] ?? flag)}
+          {FLAG_LABELS[flag] ?? flag}
         </span>
       ))}
     </>
