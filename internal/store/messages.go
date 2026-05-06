@@ -358,6 +358,52 @@ WHERE id = $1`
 	return nil
 }
 
+// SetDraftSafetyFlags writes safety_flags and safety_trigger_reason on a draft.
+// Called right after UpsertDraftForMessage when the safety check fires.
+func (db *DB) SetDraftSafetyFlags(ctx context.Context, draftID int64, flags []string, reason string) error {
+	const q = `
+UPDATE drafts SET
+  safety_flags = $2,
+  safety_trigger_reason = $3,
+  updated_at = NOW()
+WHERE id = $1`
+	ct, err := db.Exec(ctx, q, draftID, flags, reason)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return errors.New("draft not found")
+	}
+	return nil
+}
+
+// SetDraftSafetyOverriddenBy records that a safety-flagged draft was manually
+// approved, setting safety_overridden_by to the provided actor string.
+// If the draft has no safety_flags the call is a no-op (returns nil).
+func (db *DB) SetDraftSafetyOverriddenBy(ctx context.Context, draftID int64, actor string) error {
+	const q = `
+UPDATE drafts SET
+  safety_overridden_by = $2,
+  updated_at = NOW()
+WHERE id = $1
+  AND array_length(safety_flags, 1) > 0`
+	_, err := db.Exec(ctx, q, draftID, actor)
+	return err
+}
+
+// GetDraftSafetyFlags returns the safety_flags for a draft, or nil if no flags.
+func (db *DB) GetDraftSafetyFlags(ctx context.Context, draftID int64) ([]string, error) {
+	var flags []string
+	err := db.QueryRow(ctx,
+		`SELECT COALESCE(safety_flags, '{}') FROM drafts WHERE id = $1`,
+		draftID,
+	).Scan(&flags)
+	if err != nil {
+		return nil, err
+	}
+	return flags, nil
+}
+
 // MarkMessageAsMine flips sender_is_me=TRUE on an existing row. Used by
 // the style-corpus sync path: anything returned by the sender-ldap search
 // RPC is by definition sent by us, so mis-flagged historical rows get
