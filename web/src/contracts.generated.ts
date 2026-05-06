@@ -26,6 +26,13 @@
 
 
 //////////
+// source: safety.go
+/*
+safety.go implements the /api/safety/* endpoints for F-008 safety rails.
+*/
+
+
+//////////
 // source: types.go
 /*
 Package httpapi — wire-level DTO types for the React frontend.
