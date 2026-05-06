@@ -543,31 +543,69 @@ func handleGetSettings(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	safetyRules := s.SafetyRules
+	if safetyRules == nil {
+		safetyRules = map[string]bool{"money": true}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"auto_mode":                s.AutoMode,
-		"freshness_window_minutes": s.FreshnessWindowMinutes,
-		"debug_mode":               s.DebugMode,
-		"blocked_keywords":         s.BlockedKeywords,
+		"auto_mode":                 s.AutoMode,
+		"freshness_window_minutes":  s.FreshnessWindowMinutes,
+		"debug_mode":                s.DebugMode,
+		"blocked_keywords":          s.BlockedKeywords,
 		"reply_only_when_mentioned": s.ReplyOnlyWhenMentioned,
+		"safety_rails_enabled":      s.SafetyRailsEnabled,
+		"safety_rules":              safetyRules,
 	})
 }
 
-type patchSettingsReq struct {
-	AutoMode               *bool `json:"auto_mode"`
-	FreshnessWindowMinutes *int  `json:"freshness_window_minutes"`
-	DebugMode              *bool `json:"debug_mode"`
-}
-
 func handlePatchSettings(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
-	var req patchSettingsReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// Decode to raw map to detect key presence (HasSafetyRules).
+	raw := make(map[string]json.RawMessage)
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.FreshnessWindowMinutes != nil {
-		v := *req.FreshnessWindowMinutes
-		if v < 1 || v > 1440 {
+	patchReq := store.PatchSettingsRequest{}
+	if v, ok := raw["auto_mode"]; ok {
+		var b bool
+		if err := json.Unmarshal(v, &b); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid auto_mode")
+			return
+		}
+		patchReq.AutoMode = &b
+	}
+	if v, ok := raw["freshness_window_minutes"]; ok {
+		var n int
+		if err := json.Unmarshal(v, &n); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid freshness_window_minutes")
+			return
+		}
+		if n < 1 || n > 1440 {
 			writeErr(w, http.StatusBadRequest, "INVALID_PARAM: freshness_window_minutes must be 1-1440")
+			return
+		}
+		patchReq.FreshnessWindowMinutes = &n
+	}
+	if v, ok := raw["debug_mode"]; ok {
+		var b bool
+		if err := json.Unmarshal(v, &b); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid debug_mode")
+			return
+		}
+		patchReq.DebugMode = &b
+	}
+	if v, ok := raw["safety_rails_enabled"]; ok {
+		var b bool
+		if err := json.Unmarshal(v, &b); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid safety_rails_enabled")
+			return
+		}
+		patchReq.SafetyRailsEnabled = &b
+	}
+	if v, ok := raw["safety_rules"]; ok {
+		patchReq.HasSafetyRules = true
+		if err := json.Unmarshal(v, &patchReq.SafetyRules); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid safety_rules")
 			return
 		}
 	}
@@ -576,11 +614,6 @@ func handlePatchSettings(w http.ResponseWriter, r *http.Request, db *store.DB, c
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, err.Error())
 		return
-	}
-	patchReq := store.PatchSettingsRequest{
-		AutoMode:               req.AutoMode,
-		FreshnessWindowMinutes: req.FreshnessWindowMinutes,
-		DebugMode:              req.DebugMode,
 	}
 	if err := db.PatchUserSettings(ctx, user.ID, patchReq); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -591,10 +624,16 @@ func handlePatchSettings(w http.ResponseWriter, r *http.Request, db *store.DB, c
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	safetyRules := s.SafetyRules
+	if safetyRules == nil {
+		safetyRules = map[string]bool{"money": true}
+	}
 	updated := map[string]any{
-		"auto_mode":                s.AutoMode,
-		"freshness_window_minutes": s.FreshnessWindowMinutes,
-		"debug_mode":               s.DebugMode,
+		"auto_mode":                 s.AutoMode,
+		"freshness_window_minutes":  s.FreshnessWindowMinutes,
+		"debug_mode":                s.DebugMode,
+		"safety_rails_enabled":      s.SafetyRailsEnabled,
+		"safety_rules":              safetyRules,
 	}
 	if h != nil {
 		h.SettingsUpdated(updated)
@@ -604,9 +643,10 @@ func handlePatchSettings(w http.ResponseWriter, r *http.Request, db *store.DB, c
 }
 
 type patchSpaceReq struct {
-	MentionOnly        *bool    `json:"mention_only"`
-	AutoModeOverride   *string  `json:"auto_mode_override"`
-	BlockedKeywords    []string `json:"blocked_keywords"`
+	MentionOnly         *bool    `json:"mention_only"`
+	AutoModeOverride    *string  `json:"auto_mode_override"`
+	SafetyRailsOverride *string  `json:"safety_rails_override"`
+	BlockedKeywords     []string `json:"blocked_keywords"`
 }
 
 func handlePatchSpace(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
@@ -643,6 +683,18 @@ func handlePatchSpace(w http.ResponseWriter, r *http.Request, db *store.DB, cfg 
 		}
 		req.AutoModeOverride = &s
 	}
+	if v, ok := raw["safety_rails_override"]; ok {
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid safety_rails_override")
+			return
+		}
+		if s != "inherit" && s != "disabled" {
+			writeErr(w, http.StatusBadRequest, "safety_rails_override must be inherit|disabled")
+			return
+		}
+		req.SafetyRailsOverride = &s
+	}
 	if v, ok := raw["blocked_keywords"]; ok {
 		hasBlockedKeywords = true
 		if err := json.Unmarshal(v, &req.BlockedKeywords); err != nil {
@@ -657,10 +709,11 @@ func handlePatchSpace(w http.ResponseWriter, r *http.Request, db *store.DB, cfg 
 		return
 	}
 	patchReq := store.PatchSpaceRequest{
-		MentionOnly:        req.MentionOnly,
-		AutoModeOverride:   req.AutoModeOverride,
-		BlockedKeywords:    req.BlockedKeywords,
-		HasBlockedKeywords: hasBlockedKeywords,
+		MentionOnly:         req.MentionOnly,
+		AutoModeOverride:    req.AutoModeOverride,
+		SafetyRailsOverride: req.SafetyRailsOverride,
+		BlockedKeywords:     req.BlockedKeywords,
+		HasBlockedKeywords:  hasBlockedKeywords,
 	}
 	if err := db.PatchSpaceSettings(ctx, user.ID, spaceID, patchReq); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

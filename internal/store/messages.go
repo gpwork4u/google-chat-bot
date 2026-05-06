@@ -449,22 +449,27 @@ func (db *DB) GetDraft(ctx context.Context, id int64) (*Draft, error) {
 // --- settings ---
 
 type UserSettings struct {
-	UserID                 int64  `json:"user_id"`
-	AutoMode               bool   `json:"auto_mode"`
-	BlockedKeywords        string `json:"blocked_keywords"`
-	ReplyOnlyWhenMentioned bool   `json:"reply_only_when_mentioned"`
-	FreshnessWindowMinutes int    `json:"freshness_window_minutes"`
-	DebugMode              bool   `json:"debug_mode"`
+	UserID                 int64           `json:"user_id"`
+	AutoMode               bool            `json:"auto_mode"`
+	BlockedKeywords        string          `json:"blocked_keywords"`
+	ReplyOnlyWhenMentioned bool            `json:"reply_only_when_mentioned"`
+	FreshnessWindowMinutes int             `json:"freshness_window_minutes"`
+	DebugMode              bool            `json:"debug_mode"`
+	SafetyRailsEnabled     bool            `json:"safety_rails_enabled"`
+	SafetyRules            map[string]bool `json:"safety_rules"`
 }
 
 func (db *DB) GetUserSettings(ctx context.Context, userID int64) (*UserSettings, error) {
 	const q = `SELECT user_id, auto_mode, blocked_keywords, reply_only_when_mentioned,
-	             COALESCE(freshness_window_minutes, 30), COALESCE(debug_mode, false)
+	             COALESCE(freshness_window_minutes, 30), COALESCE(debug_mode, false),
+	             COALESCE(safety_rails_enabled, true),
+	             COALESCE(safety_rules, '{"money": true}'::jsonb)
 	           FROM user_settings WHERE user_id=$1`
 	var s UserSettings
 	err := db.QueryRow(ctx, q, userID).Scan(
 		&s.UserID, &s.AutoMode, &s.BlockedKeywords, &s.ReplyOnlyWhenMentioned,
 		&s.FreshnessWindowMinutes, &s.DebugMode,
+		&s.SafetyRailsEnabled, &s.SafetyRules,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Create a default row.
@@ -479,9 +484,12 @@ func (db *DB) GetUserSettings(ctx context.Context, userID int64) (*UserSettings,
 
 // PatchSettingsRequest carries optional fields for partial PATCH /api/settings.
 type PatchSettingsRequest struct {
-	AutoMode               *bool `json:"auto_mode"`
-	FreshnessWindowMinutes *int  `json:"freshness_window_minutes"`
-	DebugMode              *bool `json:"debug_mode"`
+	AutoMode               *bool           `json:"auto_mode"`
+	FreshnessWindowMinutes *int            `json:"freshness_window_minutes"`
+	DebugMode              *bool           `json:"debug_mode"`
+	SafetyRailsEnabled     *bool           `json:"safety_rails_enabled"`
+	SafetyRules            map[string]bool `json:"safety_rules"`
+	HasSafetyRules         bool            `json:"-"` // true when safety_rules key was present in JSON
 }
 
 // PatchUserSettings applies a partial update. Only non-nil fields are changed.
@@ -508,6 +516,20 @@ func (db *DB) PatchUserSettings(ctx context.Context, userID int64, req PatchSett
 		if _, err := db.Exec(ctx,
 			`UPDATE user_settings SET debug_mode=$2, updated_at=NOW() WHERE user_id=$1`,
 			userID, *req.DebugMode); err != nil {
+			return err
+		}
+	}
+	if req.SafetyRailsEnabled != nil {
+		if _, err := db.Exec(ctx,
+			`UPDATE user_settings SET safety_rails_enabled=$2, updated_at=NOW() WHERE user_id=$1`,
+			userID, *req.SafetyRailsEnabled); err != nil {
+			return err
+		}
+	}
+	if req.HasSafetyRules {
+		if _, err := db.Exec(ctx,
+			`UPDATE user_settings SET safety_rules=$2, updated_at=NOW() WHERE user_id=$1`,
+			userID, req.SafetyRules); err != nil {
 			return err
 		}
 	}

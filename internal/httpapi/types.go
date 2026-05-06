@@ -17,24 +17,27 @@ import "time"
 // Settings is the global per-user configuration returned by GET /api/settings
 // and emitted in WebSocket settings_updated events.
 type Settings struct {
-	AutoMode               bool   `json:"auto_mode"`
-	FreshnessWindowMinutes int    `json:"freshness_window_minutes"`
-	DebugMode              bool   `json:"debug_mode"`
-	BlockedKeywords        string `json:"blocked_keywords"`
-	ReplyOnlyWhenMentioned bool   `json:"reply_only_when_mentioned"`
+	AutoMode               bool            `json:"auto_mode"`
+	FreshnessWindowMinutes int             `json:"freshness_window_minutes"`
+	DebugMode              bool            `json:"debug_mode"`
+	BlockedKeywords        string          `json:"blocked_keywords"`
+	ReplyOnlyWhenMentioned bool            `json:"reply_only_when_mentioned"`
+	SafetyRailsEnabled     bool            `json:"safety_rails_enabled"`
+	SafetyRules            map[string]bool `json:"safety_rules"`
 }
 
 // Space is one row returned by GET /api/spaces — a Google Chat space with
 // its per-channel settings.
 type Space struct {
-	SpaceKey         string     `json:"space_key"`
-	SpaceName        string     `json:"space_name"`
-	Enabled          bool       `json:"enabled"`
-	MentionOnly      bool       `json:"mention_only"`
-	AutoModeOverride string     `json:"auto_mode_override"` // "inherit" | "always_on" | "always_off"
-	BlockedKeywords  []string   `json:"blocked_keywords"`
-	MessageCount     int        `json:"message_count"`
-	LastMessageAt    *time.Time `json:"last_message_at"`
+	SpaceKey            string     `json:"space_key"`
+	SpaceName           string     `json:"space_name"`
+	Enabled             bool       `json:"enabled"`
+	MentionOnly         bool       `json:"mention_only"`
+	AutoModeOverride    string     `json:"auto_mode_override"`    // "inherit" | "always_on" | "always_off"
+	SafetyRailsOverride string     `json:"safety_rails_override"` // "inherit" | "disabled"
+	BlockedKeywords     []string   `json:"blocked_keywords"`
+	MessageCount        int        `json:"message_count"`
+	LastMessageAt       *time.Time `json:"last_message_at"`
 }
 
 // ContextMessage is a single message in the conversation context bundled with
@@ -59,18 +62,21 @@ type DraftDebugInfo struct {
 // the AI-generated reply with enough context (space / sender / original message)
 // for the ApprovalsPage to render a complete ApprovalCard.
 type Draft struct {
-	ID              int64            `json:"id"`
-	SpaceID         string           `json:"space_id"`
-	SpaceName       string           `json:"space_name"`
-	SenderID        string           `json:"sender_id"`
-	SenderName      string           `json:"sender_name"`
-	OriginalMessage string           `json:"original_message"`
-	ContextMessages []ContextMessage `json:"context_messages"`
-	DraftContent    string           `json:"draft_content"`
-	Category        string           `json:"category"`
-	Debug           *DraftDebugInfo  `json:"debug,omitempty"`
-	CreatedAt       time.Time        `json:"created_at"`
-	MessageID       int64            `json:"message_id"`
+	ID                  int64            `json:"id"`
+	SpaceID             string           `json:"space_id"`
+	SpaceName           string           `json:"space_name"`
+	SenderID            string           `json:"sender_id"`
+	SenderName          string           `json:"sender_name"`
+	OriginalMessage     string           `json:"original_message"`
+	ContextMessages     []ContextMessage `json:"context_messages"`
+	DraftContent        string           `json:"draft_content"`
+	Category            string           `json:"category"`
+	Debug               *DraftDebugInfo  `json:"debug,omitempty"`
+	CreatedAt           time.Time        `json:"created_at"`
+	MessageID           int64            `json:"message_id"`
+	SafetyFlags         []string         `json:"safety_flags"`
+	SafetyTriggerReason string           `json:"safety_trigger_reason"`
+	SafetyOverriddenBy  *string          `json:"safety_overridden_by"`
 }
 
 // SentRecord is one row returned by GET /api/sent — a successfully delivered
@@ -104,16 +110,19 @@ type ProfileFact struct {
 // latest pending draft (if any). Emitted via WebSocket draft_created events
 // and used by the approval queue.
 type Inbox struct {
-	ID              int64            `json:"id"`
-	SpaceID         string           `json:"space_id"`
-	SpaceName       string           `json:"space_name"`
-	SenderID        string           `json:"sender_id"`
-	SenderName      string           `json:"sender_name"`
-	OriginalMessage string           `json:"original_message"`
-	ContextMessages []ContextMessage `json:"context_messages"`
-	DraftContent    string           `json:"draft_content"`
-	Category        string           `json:"category"`
-	Debug           *DraftDebugInfo  `json:"debug,omitempty"`
-	CreatedAt       time.Time        `json:"created_at"`
-	MessageID       int64            `json:"message_id"`
+	ID                  int64            `json:"id"`
+	SpaceID             string           `json:"space_id"`
+	SpaceName           string           `json:"space_name"`
+	SenderID            string           `json:"sender_id"`
+	SenderName          string           `json:"sender_name"`
+	OriginalMessage     string           `json:"original_message"`
+	ContextMessages     []ContextMessage `json:"context_messages"`
+	DraftContent        string           `json:"draft_content"`
+	Category            string           `json:"category"`
+	Debug               *DraftDebugInfo  `json:"debug,omitempty"`
+	CreatedAt           time.Time        `json:"created_at"`
+	MessageID           int64            `json:"message_id"`
+	SafetyFlags         []string         `json:"safety_flags"`
+	SafetyTriggerReason string           `json:"safety_trigger_reason"`
+	SafetyOverriddenBy  *string          `json:"safety_overridden_by"`
 }

@@ -9,18 +9,21 @@ import (
 // It bundles the draft with enough context (space/sender name, original message,
 // recent context, category) so the UI can render a complete ApprovalCard.
 type DraftForUI struct {
-	ID             int64              `json:"id"`
-	SpaceID        string             `json:"space_id"`
-	SpaceName      string             `json:"space_name"`
-	SenderID       string             `json:"sender_id"`
-	SenderName     string             `json:"sender_name"`
-	OriginalMessage string            `json:"original_message"`
-	ContextMessages []ContextMessage  `json:"context_messages"`
-	DraftContent   string             `json:"draft_content"`
-	Category       string             `json:"category"`
-	Debug          *DraftDebugInfo    `json:"debug,omitempty"`
-	CreatedAt      time.Time          `json:"created_at"`
-	MessageID      int64              `json:"message_id"`
+	ID                  int64             `json:"id"`
+	SpaceID             string            `json:"space_id"`
+	SpaceName           string            `json:"space_name"`
+	SenderID            string            `json:"sender_id"`
+	SenderName          string            `json:"sender_name"`
+	OriginalMessage     string            `json:"original_message"`
+	ContextMessages     []ContextMessage  `json:"context_messages"`
+	DraftContent        string            `json:"draft_content"`
+	Category            string            `json:"category"`
+	Debug               *DraftDebugInfo   `json:"debug,omitempty"`
+	CreatedAt           time.Time         `json:"created_at"`
+	MessageID           int64             `json:"message_id"`
+	SafetyFlags         []string          `json:"safety_flags"`
+	SafetyTriggerReason string            `json:"safety_trigger_reason"`
+	SafetyOverriddenBy  *string           `json:"safety_overridden_by"`
 }
 
 // ContextMessage is a single message in the conversation context.
@@ -61,7 +64,10 @@ SELECT
   d.created_at,
   m.id AS message_id,
   m.space_key AS msg_space_key,
-  m.observed_at
+  m.observed_at,
+  COALESCE(d.safety_flags, '{}') AS safety_flags,
+  COALESCE(d.safety_trigger_reason, '') AS safety_trigger_reason,
+  d.safety_overridden_by
 FROM drafts d
 JOIN messages m ON m.id = d.message_id` + memberJoin + `
 LEFT JOIN spaces_directory dir
@@ -103,6 +109,9 @@ LIMIT $2`
 			&r.MessageID,
 			&r.SpaceID, // re-scanned for context query (same field)
 			&r.observedAt,
+			&r.SafetyFlags,
+			&r.SafetyTriggerReason,
+			&r.SafetyOverriddenBy,
 		); err != nil {
 			return nil, err
 		}
@@ -141,6 +150,9 @@ LIMIT $2`
 			})
 		}
 		r.ContextMessages = ctxMsgs
+		if r.SafetyFlags == nil {
+			r.SafetyFlags = []string{}
+		}
 		out = append(out, r.DraftForUI)
 	}
 	return out, nil

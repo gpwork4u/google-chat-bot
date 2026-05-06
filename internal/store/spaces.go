@@ -6,23 +6,25 @@ import (
 )
 
 type SpaceRow struct {
-	SpaceKey         string     `json:"space_key"`
-	SpaceName        string     `json:"space_name"`
-	Disabled         bool       `json:"disabled"`
-	Enabled          bool       `json:"enabled"`
-	MentionOnly      bool       `json:"mention_only"`
-	AutoModeOverride string     `json:"auto_mode_override"` // inherit | always_on | always_off
-	BlockedKeywords  []string   `json:"blocked_keywords"`
-	MessageCount     int        `json:"message_count"`
-	LastMessageAt    *time.Time `json:"last_message_at"`
+	SpaceKey            string     `json:"space_key"`
+	SpaceName           string     `json:"space_name"`
+	Disabled            bool       `json:"disabled"`
+	Enabled             bool       `json:"enabled"`
+	MentionOnly         bool       `json:"mention_only"`
+	AutoModeOverride    string     `json:"auto_mode_override"`    // inherit | always_on | always_off
+	SafetyRailsOverride string     `json:"safety_rails_override"` // inherit | disabled
+	BlockedKeywords     []string   `json:"blocked_keywords"`
+	MessageCount        int        `json:"message_count"`
+	LastMessageAt       *time.Time `json:"last_message_at"`
 }
 
 // PatchSpaceRequest carries optional per-channel settings for partial PATCH.
 type PatchSpaceRequest struct {
-	MentionOnly        *bool    `json:"mention_only"`
-	AutoModeOverride   *string  `json:"auto_mode_override"`
-	BlockedKeywords    []string `json:"blocked_keywords"`
-	HasBlockedKeywords bool     `json:"-"` // true when blocked_keywords key was present in JSON
+	MentionOnly         *bool    `json:"mention_only"`
+	AutoModeOverride    *string  `json:"auto_mode_override"`
+	SafetyRailsOverride *string  `json:"safety_rails_override"`
+	BlockedKeywords     []string `json:"blocked_keywords"`
+	HasBlockedKeywords  bool     `json:"-"` // true when blocked_keywords key was present in JSON
 }
 
 // PatchSpaceSettings applies a partial update to space_settings.
@@ -45,6 +47,13 @@ ON CONFLICT (user_id, space_key) DO NOTHING`
 		if _, err := db.Exec(ctx,
 			`UPDATE space_settings SET auto_mode_override=$3, updated_at=NOW() WHERE user_id=$1 AND space_key=$2`,
 			userID, spaceKey, *req.AutoModeOverride); err != nil {
+			return err
+		}
+	}
+	if req.SafetyRailsOverride != nil {
+		if _, err := db.Exec(ctx,
+			`UPDATE space_settings SET safety_rails_override=$3, updated_at=NOW() WHERE user_id=$1 AND space_key=$2`,
+			userID, spaceKey, *req.SafetyRailsOverride); err != nil {
 			return err
 		}
 	}
@@ -84,6 +93,7 @@ SELECT
   COALESCE(s.disabled, TRUE) AS disabled,
   COALESCE(s.mention_only, FALSE) AS mention_only,
   COALESCE(s.auto_mode_override, 'inherit') AS auto_mode_override,
+  COALESCE(s.safety_rails_override, 'inherit') AS safety_rails_override,
   COALESCE(s.blocked_keywords, '{}') AS blocked_keywords,
   count(*) AS message_count,
   MAX(m.observed_at) AS last_at
@@ -95,7 +105,7 @@ LEFT JOIN spaces_directory dir
 WHERE m.user_id = $1
   AND m.space_key <> ''
   AND m.observed_at >= ` + floorExpr + `
-GROUP BY m.space_key, s.disabled, s.mention_only, s.auto_mode_override, s.blocked_keywords, dir.display_name
+GROUP BY m.space_key, s.disabled, s.mention_only, s.auto_mode_override, s.safety_rails_override, s.blocked_keywords, dir.display_name
 ORDER BY last_at DESC NULLS LAST`
 	rows, err := db.Query(ctx, q, args...)
 	if err != nil {
@@ -107,7 +117,7 @@ ORDER BY last_at DESC NULLS LAST`
 		var r SpaceRow
 		if err := rows.Scan(
 			&r.SpaceKey, &r.SpaceName, &r.Disabled, &r.MentionOnly,
-			&r.AutoModeOverride, &r.BlockedKeywords, &r.MessageCount, &r.LastMessageAt,
+			&r.AutoModeOverride, &r.SafetyRailsOverride, &r.BlockedKeywords, &r.MessageCount, &r.LastMessageAt,
 		); err != nil {
 			return nil, err
 		}
