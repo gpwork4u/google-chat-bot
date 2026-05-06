@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import type { Draft, DraftCategory } from '../types/draft'
 import { TESTIDS } from '../contracts'
+import { SafetyBadge } from './SafetyBadge'
 
 export type CardStatus = 'pending' | 'approving' | 'sending' | 'done' | 'error'
 
@@ -178,7 +179,15 @@ export default function ApprovalCard({
               )}
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Safety badge（F-008）— 優先顯示，比 category badge 更顯眼 */}
+            {draft.safety_flags && draft.safety_flags.length > 0 && (
+              <SafetyBadge
+                flags={draft.safety_flags}
+                reason={draft.safety_trigger_reason ?? ''}
+                data-flags={draft.safety_flags.join(',')}
+              />
+            )}
             {/* Category badge */}
             <span
               className={`inline-flex items-center rounded-xs border px-1.5 py-0.5 text-2xs font-medium ${badgeClass}`}
