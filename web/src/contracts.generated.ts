@@ -52,6 +52,8 @@ export interface Settings {
   debug_mode: boolean;
   blocked_keywords: string;
   reply_only_when_mentioned: boolean;
+  safety_rails_enabled: boolean;
+  safety_rules: { [key: string]: boolean};
 }
 /**
  * Space is one row returned by GET /api/spaces — a Google Chat space with
@@ -63,6 +65,7 @@ export interface Space {
   enabled: boolean;
   mention_only: boolean;
   auto_mode_override: string; // "inherit" | "always_on" | "always_off"
+  safety_rails_override: string; // "inherit" | "disabled"
   blocked_keywords: string[];
   message_count: number /* int */;
   last_message_at?: string /* ISO 8601 */;
@@ -105,6 +108,9 @@ export interface Draft {
   debug?: DraftDebugInfo;
   created_at: string /* ISO 8601 */;
   message_id: number /* int64 */;
+  safety_flags: string[];
+  safety_trigger_reason: string;
+  safety_overridden_by?: string;
 }
 /**
  * SentRecord is one row returned by GET /api/sent — a successfully delivered
@@ -153,6 +159,9 @@ export interface Inbox {
   debug?: DraftDebugInfo;
   created_at: string /* ISO 8601 */;
   message_id: number /* int64 */;
+  safety_flags: string[];
+  safety_trigger_reason: string;
+  safety_overridden_by?: string;
 }
 
 //////////
