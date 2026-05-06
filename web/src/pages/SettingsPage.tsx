@@ -3,11 +3,14 @@ import useSWR from 'swr'
 import { api, fetcher } from '../api/client'
 import { useSettings } from '../hooks/useSettings'
 import { useToast } from '../components/Toast'
-import { TESTIDS, TOAST } from '../contracts'
+import SafetySection from '../components/SafetySection'
+import { TESTIDS, TOAST, LABELS } from '../contracts'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type AutoModeOverride = 'inherit' | 'always_on' | 'always_off'
+
+type SafetyRailsOverride = 'inherit' | 'disabled'
 
 interface SpaceSetting {
   space_key: string
@@ -17,6 +20,7 @@ interface SpaceSetting {
   mention_only: boolean
   auto_mode_override: AutoModeOverride
   blocked_keywords: string[]
+  safety_rails_override: SafetyRailsOverride
 }
 
 interface SpacesResponse {
@@ -127,6 +131,7 @@ interface ChannelCardProps {
   onMentionOnlyChange: (spaceId: string, val: boolean) => Promise<void>
   onAutoModeOverrideChange: (spaceId: string, val: AutoModeOverride) => Promise<void>
   onBlockedKeywordsChange: (spaceId: string, keywords: string[]) => Promise<void>
+  onSafetySkipChange: (spaceId: string, skip: boolean) => Promise<void>
 }
 
 function ChannelCard({
@@ -135,6 +140,7 @@ function ChannelCard({
   onMentionOnlyChange,
   onAutoModeOverrideChange,
   onBlockedKeywordsChange,
+  onSafetySkipChange,
 }: ChannelCardProps) {
   const [keywordInput, setKeywordInput] = useState('')
 
@@ -228,6 +234,19 @@ function ChannelCard({
             })}
           </div>
         </fieldset>
+      </div>
+
+      {/* Safety skip toggle */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+        <span className={`text-sm ${disabled ? 'text-gray-500' : 'text-gray-300'}`}>
+          {LABELS.CHANNEL_SAFETY_SKIP_LABEL}
+        </span>
+        <Toggle
+          checked={space.safety_rails_override === 'disabled'}
+          onChange={(val) => void onSafetySkipChange(space.space_key, val)}
+          ariaLabel={LABELS.CHANNEL_SAFETY_SKIP_LABEL}
+          testId={TESTIDS.CHANNEL_SAFETY_SKIP_TOGGLE}
+        />
       </div>
 
       {/* Blocked keywords */}
@@ -711,6 +730,23 @@ export default function SettingsPage() {
     [mutateSpaces, showToast],
   )
 
+  const handleSafetySkipChange = useCallback(
+    async (spaceId: string, skip: boolean) => {
+      const override: SafetyRailsOverride = skip ? 'disabled' : 'inherit'
+      try {
+        await api(`/api/spaces/${spaceId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ safety_rails_override: override }),
+        })
+        await mutateSpaces()
+        showToast(TOAST.SETTINGS_SAVED, 'success')
+      } catch {
+        showToast(TOAST.SETTINGS_SAVE_FAILED, 'error')
+      }
+    },
+    [mutateSpaces, showToast],
+  )
+
   // ── Profile CRUD ──
   const handleProfileEdit = useCallback(
     async (fact: ProfileFact) => {
@@ -752,6 +788,7 @@ export default function SettingsPage() {
     enabled: !s.disabled,
     blocked_keywords: s.blocked_keywords ?? [],
     auto_mode_override: (s.auto_mode_override as AutoModeOverride) ?? 'inherit',
+    safety_rails_override: ((s as SpaceSetting).safety_rails_override ?? 'inherit') as SafetyRailsOverride,
   }))
 
   const facts = profileData?.facts ?? []
@@ -853,6 +890,9 @@ export default function SettingsPage() {
         )}
       </section>
 
+      {/* ── Safety Rails Section (F-008) ── */}
+      <SafetySection />
+
       {/* ── Channels Section ── */}
       <section data-testid={TESTIDS.CHANNELS_SECTION} aria-label="空間設定" className="space-y-0">
         <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">空間設定</h2>
@@ -880,6 +920,7 @@ export default function SettingsPage() {
                 onMentionOnlyChange={handleMentionOnlyChange}
                 onAutoModeOverrideChange={handleAutoModeOverrideChange}
                 onBlockedKeywordsChange={handleBlockedKeywordsChange}
+                onSafetySkipChange={handleSafetySkipChange}
               />
             ))}
           </div>
