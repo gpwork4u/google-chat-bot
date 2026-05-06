@@ -519,6 +519,10 @@ func handleDraftAction(w http.ResponseWriter, r *http.Request, db *store.DB, new
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// F-008 Approve audit: 若 draft 有 safety_flags，記錄手動審核覆蓋。
+	if newStatus == "approved" {
+		_ = db.SetDraftSafetyOverriddenBy(r.Context(), id, "manual_approve")
+	}
 	if h != nil {
 		// Payload-bearing event: tell the UI which draft was removed.
 		h.DraftRemoved(strconv.FormatInt(id, 10))

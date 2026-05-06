@@ -10,6 +10,7 @@ import (
 
 	"github.com/ailabs-tw/google-chat-bot/internal/config"
 	"github.com/ailabs-tw/google-chat-bot/internal/hub"
+	"github.com/ailabs-tw/google-chat-bot/internal/safety"
 	"github.com/ailabs-tw/google-chat-bot/internal/store"
 )
 
@@ -162,11 +163,41 @@ func handleClaudeReply(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 	settings, _ := db.GetUserSettings(ctx, user.ID)
 	autoSend := settings != nil && settings.AutoMode
 
+	// --- F-008 安全護欄攔截 ---
+	// 在寫入 DB 前執行 safety.Check；若命中則強制轉為 draft 模式。
+	var safetyResult safety.Result
+	if settings != nil {
+		rules := settings.SafetyRules
+		if rules == nil {
+			rules = map[string]bool{"money": true}
+		}
+		globalSettings := safety.Settings{
+			Enabled: settings.SafetyRailsEnabled,
+			Rules:   rules,
+		}
+		spaceSettings := safety.SpaceSettings{SafetyRailsOverride: "inherit"}
+		if msg.SpaceKey != "" {
+			override, _ := db.GetSpaceSafetyOverride(ctx, user.ID, msg.SpaceKey)
+			spaceSettings.SafetyRailsOverride = override
+		}
+		safetyResult, _ = safety.Check(ctx, req.Body, msg.SpaceKey, globalSettings, spaceSettings, &safety.StubClaudeClient{})
+		if safetyResult.Flagged {
+			// 強制 draft 模式，覆蓋 auto_send。
+			autoSend = false
+		}
+	}
+
 	draftID, status, err := db.UpsertDraftForMessage(ctx, msg.ID, req.Body, model, sendMode, reasoning, autoSend)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// 若安全護欄命中，寫入 safety_flags / safety_trigger_reason。
+	if safetyResult.Flagged && len(safetyResult.Flags) > 0 {
+		_ = db.SetDraftSafetyFlags(ctx, draftID, safetyResult.Flags, safetyResult.Reason)
+	}
+
 	if h != nil {
 		// If the skill re-POSTs to update an already-dispatched draft,
 		// clear the single-dispatch claim so the updated body gets pushed.
@@ -176,11 +207,18 @@ func handleClaudeReply(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 			pushPendingForClaude(ctx, db, h, user.ID)
 		}
 	}
+	safetyFlags := safetyResult.Flags
+	if safetyFlags == nil {
+		safetyFlags = []string{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":        true,
-		"draft_id":  draftID,
-		"status":    status,
-		"auto_sent": autoSend,
+		"ok":             true,
+		"draft_id":       draftID,
+		"status":         status,
+		"auto_sent":      autoSend,
+		"safety_flagged": safetyResult.Flagged,
+		"safety_flags":   safetyFlags,
+		"safety_reason":  safetyResult.Reason,
 	})
 }
 

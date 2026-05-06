@@ -242,6 +242,21 @@ func (db *DB) IsSpaceDisabled(ctx context.Context, userID int64, spaceKey string
 	return disabled, nil
 }
 
+// GetSpaceSafetyOverride returns the safety_rails_override value for a space.
+// If no row exists for (userID, spaceKey), it returns "inherit" (default).
+func (db *DB) GetSpaceSafetyOverride(ctx context.Context, userID int64, spaceKey string) (string, error) {
+	var override string
+	err := db.QueryRow(ctx,
+		`SELECT COALESCE(safety_rails_override, 'inherit') FROM space_settings WHERE user_id=$1 AND space_key=$2`,
+		userID, spaceKey,
+	).Scan(&override)
+	if err != nil {
+		// No row → inherit (default).
+		return "inherit", nil
+	}
+	return override, nil
+}
+
 // WasRecentlySentDraft returns true when the given message body matches a draft
 // we already sent to the same space around the same observation time. This is
 // used to recognize our own messages and avoid reply loops.
