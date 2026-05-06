@@ -27,6 +27,9 @@ export interface Draft {
   debug?: DraftDebug
   created_at: string
   message_id?: number
+  safety_flags?: string[]
+  safety_trigger_reason?: string
+  safety_overridden_by?: string
 }
 
 export interface DraftsResponse {
