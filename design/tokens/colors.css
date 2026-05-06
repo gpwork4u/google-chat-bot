@@ -91,6 +91,13 @@
   --color-toast-error-text:      oklch(0.95 0.030 25);
   --color-toast-error-icon:      oklch(0.65 0.200 25);
 
+  /* ── Safety Badge Colors（Sprint 4 新增）────────────────── */
+  /* ApprovalCard safety rails 警示 badge */
+  --color-safety-badge-bg:      oklch(0.96 0.040 25);    /* error-subtle 衍生，比 error-subtle 更飽和 */
+  --color-safety-badge-text:    oklch(0.40 0.200 25);    /* 深紅，與背景 4.5:1 以上對比 */
+  --color-safety-badge-border:  oklch(0.78 0.120 25);    /* 中紅邊框 */
+  --color-safety-badge-chip-bg: oklch(0.88 0.100 25);    /* flag chip 稍深背景 */
+
   /* ── Category Badge Colors ───────────────────────────── */
   /* 四類對應 categorize.md：daily-chat / work-coordination / engineering / skip */
   --color-category-chat-bg:      oklch(0.94 0.040 264);   /* indigo-50 tone */
@@ -162,4 +169,10 @@
   --color-mode-auto-border:      oklch(0.35 0.100 80);
 
   /* Toast — dark mode 同 light（toast 本身用深色 surface，已是 dark） */
+
+  /* Safety Badge — dark mode */
+  --color-safety-badge-bg:      oklch(0.22 0.060 25);
+  --color-safety-badge-text:    oklch(0.85 0.100 25);
+  --color-safety-badge-border:  oklch(0.35 0.120 25);
+  --color-safety-badge-chip-bg: oklch(0.30 0.100 25);
 }
