@@ -107,6 +107,18 @@ export const TESTIDS = {
   REMOVE_KEYWORD: 'remove-keyword',
   KEYWORD_INPUT: 'keyword-input',
 
+  // --- SettingsPage (F-008) safety section ---
+  SAFETY_SECTION: 'safety-section',
+  SAFETY_ENABLED_TOGGLE: 'safety-enabled-toggle',
+  SAFETY_RULE_MONEY_TOGGLE: 'safety-rule-money-toggle',
+
+  // --- ChannelCard (F-008) per-space override ---
+  CHANNEL_SAFETY_SKIP_TOGGLE: 'channel-safety-skip-toggle',
+
+  // --- ApprovalCard (F-008) safety badge ---
+  SAFETY_BADGE: 'safety-badge',
+  SAFETY_REASON: 'safety-reason',
+
   // --- SettingsPage (F-004) profile section ---
   PROFILE_SECTION: 'profile-section',
   PROFILE_GROUP: 'profile-group',
@@ -141,6 +153,10 @@ export const API_PATHS = {
   SPACE_PATCH: (spaceId: string) => `/api/spaces/${spaceId}`,
   CLAUDE_PROFILE: '/api/claude/profile',
   CLAUDE_PROFILE_ITEM: (id: string | number) => `/api/claude/profile/${id}`,
+
+  // Safety Rails (F-008, Sprint 4)
+  SAFETY_RULES: '/api/safety/rules',
+  SAFETY_CHECK: '/api/safety/check',
 
   // WebSocket
   WS_UI: '/ws/ui',
@@ -212,4 +228,16 @@ export const LABELS = {
 
   // SettingsPage freshness error
   FRESHNESS_ERROR: '請輸入 1–1440 之間的數字',
+
+  // SettingsPage Safety Rails (F-008, Sprint 4)
+  SAFETY_SECTION_TITLE: '安全護欄',
+  SAFETY_ENABLED_LABEL: '啟用安全護欄',
+  SAFETY_ENABLED_HINT: '偵測到金錢相關內容時自動降級為 draft，等待人工審核',
+  SAFETY_RULE_MONEY_LABEL: '金錢偵測',
+  SAFETY_RULE_MONEY_HINT: '金額、轉帳、報價、付款承諾',
+  CHANNEL_SAFETY_SKIP_LABEL: '跳過此頻道安全護欄',
+
+  // ApprovalCard safety badge (F-008)
+  SAFETY_BADGE_MONEY: '⚠️ 金錢內容',
+  SAFETY_BADGE_PREFIX: '⚠️',
 } as const
