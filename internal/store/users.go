@@ -152,12 +152,22 @@ func (db *DB) EnsureLocalUser(ctx context.Context, email, name string) (*User, e
 	if name == "" {
 		name = "Local Extension User"
 	}
-	const q = `
+	// On conflict: only overwrite name/email when the existing row still has the
+// default/empty placeholder. Once AutoDetectChatIdentity detects the real chat
+// identity (e.g. "GP Wang 王鈞平") we must not revert it back to defaults on
+// every request.
+const q = `
 INSERT INTO users (google_sub, email, name, picture_url, access_token, refresh_token, token_expiry, scopes, updated_at)
 VALUES ($1, $2, $3, '', '\\x'::bytea, NULL, NULL, '', NOW())
 ON CONFLICT (google_sub) DO UPDATE SET
-    email = EXCLUDED.email,
-    name = EXCLUDED.name,
+    email = CASE
+        WHEN users.email = '' OR users.email = 'local-extension-user@localhost' THEN EXCLUDED.email
+        ELSE users.email
+    END,
+    name = CASE
+        WHEN users.name = '' OR users.name = 'Local Extension User' THEN EXCLUDED.name
+        ELSE users.name
+    END,
     updated_at = NOW()
 RETURNING id`
 	var id int64
@@ -165,4 +175,35 @@ RETURNING id`
 		return nil, err
 	}
 	return db.GetUserByID(ctx, id)
+}
+
+// AutoDetectChatIdentity finds the user's real chat identity from
+// sender_is_me=TRUE messages and updates users.name + chat_user_id when the
+// row still holds the default placeholder. Idempotent — no-op once a real
+// name is detected (or no self messages exist yet).
+func (db *DB) AutoDetectChatIdentity(ctx context.Context, userID int64) error {
+	var senderID, senderName string
+	err := db.QueryRow(ctx, `
+SELECT sender_id, sender_name
+FROM messages
+WHERE user_id = $1 AND sender_is_me = TRUE
+  AND sender_name <> '' AND sender_id <> ''
+GROUP BY sender_id, sender_name
+ORDER BY COUNT(*) DESC
+LIMIT 1`, userID).Scan(&senderID, &senderName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(ctx, `
+UPDATE users SET
+    name = CASE WHEN name = '' OR name = 'Local Extension User' THEN $2 ELSE name END,
+    chat_user_id = COALESCE(NULLIF(chat_user_id, ''), $3),
+    updated_at = NOW()
+WHERE id = $1
+  AND (name = '' OR name = 'Local Extension User' OR chat_user_id IS NULL OR chat_user_id = '')`,
+		userID, senderName, senderID)
+	return err
 }
