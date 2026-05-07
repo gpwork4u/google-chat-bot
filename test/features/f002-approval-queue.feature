@@ -99,3 +99,14 @@ Feature: F-002 Approval Queue 頁
       | work-coordination  | 工作協調 |
       | engineering        | 工程     |
       | skip               | 略過     |
+
+  # --- CR-001 Regression ---
+
+  @sprint-5 @cr-001 @regression
+  Scenario: approval queue 不顯示 skipped 訊息的 draft
+    Given messages 表有 5 筆訊息
+    And 其中 2 筆已被 skip（skip_reason="pure-ack", skipped_by="skill"）
+    And 5 筆訊息皆無對應 draft
+    When 開啟 /approvals 頁
+    Then 顯示 0 張 draft 卡片
+    And GET /api/claude/pending 回傳 3 筆（已過濾 skipped）
