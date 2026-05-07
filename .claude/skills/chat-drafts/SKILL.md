@@ -170,6 +170,47 @@ Response：
 
 **政策紅線（一律 D skip）**：金錢 / 匯款 / 報價 / 合約 / 法務 / 對外客戶 / 密碼 / API key / 憑證 / 人事 / 薪資 / 績效；任何「承諾交付時間或結果」也 skip（例：「明天一定完成」、「沒問題交給我」）。
 
+### 3.5. D 類 → 呼叫 /api/claude/skip 標記 backend（best-effort）
+
+判定 D 類後，**立即呼叫 skip endpoint**，讓 backend 記錄此訊息不需回覆，下一輪 loop 的 `/api/claude/pending` 就不會再列出它。
+
+#### D 子類 reason 軟 enum（必須使用其中之一）
+
+| reason | 對應情境 |
+|--------|---------|
+| `pure-ack` | 純確認回覆（「好」「OK」「收到」「thx」「+1」「了解」） |
+| `overheard` | 別人之間的對話，self 不是目標對象（@他人 / 「OO 你去看」） |
+| `policy-redline` | 政策紅線命中（金錢 / 匯款 / 報價 / 法務 / 對外客戶 / 密碼 / 人事 / 薪資 / 績效 / 過度承諾） |
+| `not-targeted` | 訊息明確指向別人（@他人且 local user 不在列）或公告 / FYI |
+| `low-info` | 資訊量過低，無法有意義回覆（emoji-only / 單一表情符號 / 讚） |
+
+#### 呼叫方式
+
+```bash
+MID="<message_id>"      # pending 列表的 message_id（整數）
+REASON="pure-ack"       # 依上表選一個
+
+curl -sS -X POST http://localhost:8080/api/claude/skip \
+  -H 'Content-Type: application/json' \
+  -d "{\"message_id\":$MID,\"reason\":\"$REASON\",\"by\":\"skill\"}" \
+  --max-time 3 \
+  || echo "warn: /api/claude/skip failed for #$MID; will retry next loop"
+```
+
+要點：
+- `by` 固定寫死為 `"skill"`，不要改
+- `--max-time 3`：避免單一 skip 卡住整輪 loop
+- 失敗時 print warn 並**繼續處理下一則**（idempotent — 下輪 loop 重判一次不會重複標）
+- skip 失敗**不影響**其他訊息的處理流程
+
+#### 範例輸出
+
+```
+→ [D/skipped] #124 reason=pure-ack (by=skill) GP Wang: "收到"
+→ [D/skipped] #127 reason=policy-redline (by=skill) Alice: "幫我匯 50000 元過去"
+→ [D/skipped] #131 reason=overheard (by=skill) Bob→Carol: "Carol 你來看這個"
+```
+
 ### 4. 依類別走對應 playbook 起草
 
 - **A daily-chat** → 讀 `references/daily-chat.md`，直接依 style profile 起草，不用額外調查
@@ -229,10 +270,11 @@ curl -s -X POST http://localhost:8080/api/claude/reply \
 
 ```
 → [C] replied #123 "在 chat_processor.go:127，我再追一下" (auto_sent=true, engineering/查 code)
-→ [D] skipped #124 GP Wang: "收到" (純 ack)
+→ [D/skipped] #124 reason=pure-ack (by=skill) GP Wang: "收到"
 → [B] replied #125 "不確定欸，我晚點查一下" (auto_sent=false, work/排程事實用不知道回)
 → [A] replied #126 "還沒想欸" (auto_sent=true, daily/午餐閒聊)
 → [C] replied #127 "我看一下 loki，晚點回" (auto_sent=false, engineering/時間盒用完 fallback)
+→ [D/skipped] #128 reason=policy-redline (by=skill) Alice: "幫我匯款給廠商"
 ```
 
 全部跑完印 summary：
@@ -249,6 +291,7 @@ Processed 5 messages: replied=4 (auto_sent=1) skipped=1
 - `/api/claude/reply` 回 404 message not found：代表訊息被刪或不是本人 user 的；skip 往下
 - `/api/claude/reply` 回 5xx：log 錯誤但繼續處理下一則
 - pending 列表超過 20 則：只處理前 20 則，summary 裡提一下剩 N 則沒處理
+- `/api/claude/skip` 失敗（timeout / 5xx）：**不影響其他訊息的處理**；print warn log 然後繼續下一則。下輪 loop 時 pending 仍會列出這則，skill 重判一次再 skip 即可（idempotent）
 
 ## 不要做的事
 
