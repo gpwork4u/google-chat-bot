@@ -1,5 +1,6 @@
 .PHONY: infra-up infra-down dev build test tidy clean \
-        web-install web-dev web-build web-clean contracts
+        web-install web-dev web-build web-clean contracts \
+        backfill-skip backfill-skip-apply
 
 # --- Infrastructure ---
 
@@ -47,6 +48,18 @@ web-clean:
 	rm -rf internal/httpapi/web/dist/*
 	touch internal/httpapi/web/dist/.gitkeep
 	cp internal/httpapi/web/dist/.gitkeep /dev/null || true
+
+# --- Backfill ---
+
+# 一次性工具：列出將會被 skip 的 pending 訊息（dry-run，不寫 DB）。
+# 確認輸出無誤後，執行 make backfill-skip-apply 真的標記。
+backfill-skip:
+	go run ./cmd/backfill-skip --dry-run
+
+# apply 模式：真的呼叫 POST /api/claude/skip 標記訊息。
+# 執行前請確認 backend 已啟動（make dev / docker compose up）。
+backfill-skip-apply:
+	go run ./cmd/backfill-skip --apply
 
 # --- Contracts Codegen ---
 
