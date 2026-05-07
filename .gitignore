@@ -11,3 +11,5 @@ internal/httpapi/web/dist/assets/
 session.json
 chat_session.json
 .claude/scheduled_tasks.lock
+.claude/cache/
+.claude/worktrees/
