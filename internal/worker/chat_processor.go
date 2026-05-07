@@ -946,6 +946,13 @@ func (p *ChatProcessor) broadcastPending(ctx context.Context) {
 // ingestMessage inserts/dedups a parsed message and creates a pending draft
 // when it's both new and from someone other than the authed user.
 // Returns (messagesInserted, draftsCreated) — 0 or 1 each.
+//
+// Auto-skip rules (F-011-be2): three conditions trigger an in-INSERT skip mark so
+// the pending queue never sees these messages, avoiding a race window between INSERT
+// and a follow-up UPDATE:
+//  1. sender_is_me=true → self-sent, skip reason "self-sent"
+//  2. body matches user's blocked_keywords → reason "blocked-keyword:<keyword>"
+//  3. mention-only mode enabled but body doesn't mention self → reason "not-mentioned"
 func (p *ChatProcessor) ingestMessage(ctx context.Context, pm parser.ParsedMessage) (int, int) {
 	if !isFresh(pm.ObservedAt) {
 		return 0, 0
@@ -988,6 +995,11 @@ func (p *ChatProcessor) ingestMessage(ctx context.Context, pm parser.ParsedMessa
 		}
 	}
 
+	// --- Auto-skip decision (F-011-be2) ---
+	// Evaluate before INSERT so the skip columns land in the same transaction.
+	// Priority: self-sent > blocked-keyword > not-mentioned.
+	skipReason, skippedBy := autoSkipReason(pm, senderIsMe, p.userName, p.db, p.userID, ctx)
+
 	// Prefer whatever name the directory already holds; only fall back
 	// to the placeholder space_key when we truly haven't learned one.
 	spaceName := pm.SpaceKey
@@ -1006,12 +1018,20 @@ func (p *ChatProcessor) ingestMessage(ctx context.Context, pm parser.ParsedMessa
 		Body:       pm.Body,
 		ObservedAt: pm.ObservedAt,
 	}
+	if skipReason != "" {
+		now := time.Now()
+		msg.SkippedAt = &now
+		msg.SkipReason = skipReason
+		msg.SkippedBy = skippedBy
+		slog.Info("auto-skip", "msg_id", pm.MessageID, "reason", skipReason)
+	}
+
 	insertedNow, err := p.db.InsertOrGetMessage(ctx, msg)
 	if err != nil {
 		slog.Warn("insert message", "err", err, "msg_id", pm.MessageID)
 		return 0, 0
 	}
-	if !insertedNow || senderIsMe {
+	if !insertedNow || senderIsMe || skipReason != "" {
 		if insertedNow {
 			return 1, 0
 		}
@@ -1023,16 +1043,6 @@ func (p *ChatProcessor) ingestMessage(ctx context.Context, pm parser.ParsedMessa
 		return 1, 0
 	}
 
-	settings, err := p.db.GetUserSettings(ctx, p.userID)
-	if err != nil {
-		slog.Warn("get settings", "err", err)
-		settings = &store.UserSettings{UserID: p.userID}
-	}
-
-	if settings.ReplyOnlyWhenMentioned && !mentionsUser(pm.Body, p.userName) {
-		return 1, 0
-	}
-
 	// No draft is generated here. The Claude Code chat-drafts skill is
 	// the single draft producer now — it reads /api/claude/pending, decides
 	// whether each message deserves a reply, and posts back via
@@ -1040,12 +1050,64 @@ func (p *ChatProcessor) ingestMessage(ctx context.Context, pm parser.ParsedMessa
 	// the old "stub draft" here would either spam the inbox with fake
 	// placeholders or pre-populate drafts that the skill can no longer
 	// generate for (the pending endpoint filters d.id IS NULL).
-	//
-	// BlockedKeywords is still returned in the pending response so the
-	// skill can refuse to reply to sensitive messages; we don't need to
-	// short-circuit here.
-	_ = settings
 	return 1, 0
+}
+
+// autoSkipReason evaluates the three auto-skip conditions and returns
+// (reason, skippedBy) when a skip should be recorded, or ("", "") otherwise.
+//
+// Conditions checked in priority order:
+//  1. sender_is_me=true           → "self-sent" / "backend_auto"
+//  2. blocked_keywords match       → "blocked-keyword:<kw>" / "backend_auto"
+//  3. mention-only but no mention  → "not-mentioned" / "backend_auto"
+func autoSkipReason(pm parser.ParsedMessage, senderIsMe bool, userName string, db *store.DB, userID int64, ctx context.Context) (reason, by string) {
+	if senderIsMe {
+		return "self-sent", "backend_auto"
+	}
+
+	settings, err := db.GetUserSettings(ctx, userID)
+	if err != nil {
+		// If settings can't be loaded, fail open (don't skip).
+		return "", ""
+	}
+
+	return autoSkipReasonFromSettings(pm, senderIsMe, userName, settings)
+}
+
+// autoSkipReasonFromSettings is the pure, testable core of autoSkipReason.
+// It evaluates skip conditions given pre-loaded settings, without touching the DB.
+func autoSkipReasonFromSettings(pm parser.ParsedMessage, senderIsMe bool, userName string, settings *store.UserSettings) (reason, by string) {
+	if senderIsMe {
+		return "self-sent", "backend_auto"
+	}
+
+	if settings != nil && settings.BlockedKeywords != "" {
+		if kw := matchBlockedKeywordReturn(pm.Body, settings.BlockedKeywords); kw != "" {
+			return "blocked-keyword:" + kw, "backend_auto"
+		}
+	}
+
+	if settings != nil && settings.ReplyOnlyWhenMentioned && !mentionsUser(pm.Body, userName) {
+		return "not-mentioned", "backend_auto"
+	}
+
+	return "", ""
+}
+
+// matchBlockedKeywordReturn is like matchesBlockedKeyword but returns the
+// matching keyword (trimmed, lower-case) so it can be embedded in the reason.
+func matchBlockedKeywordReturn(body, csv string) string {
+	body = strings.ToLower(body)
+	for _, k := range strings.Split(csv, ",") {
+		k = strings.TrimSpace(strings.ToLower(k))
+		if k == "" {
+			continue
+		}
+		if strings.Contains(body, k) {
+			return k
+		}
+	}
+	return ""
 }
 
 func matchesBlockedKeyword(body, csv string) bool {
