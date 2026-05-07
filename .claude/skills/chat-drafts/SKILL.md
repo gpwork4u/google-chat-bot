@@ -187,12 +187,12 @@ Response：
 #### 呼叫方式
 
 ```bash
-MID="<message_id>"      # pending 列表的 message_id（整數）
+MID="<message_id>"      # pending 列表的 message_id（string）
 REASON="pure-ack"       # 依上表選一個
 
 curl -sS -X POST http://localhost:8080/api/claude/skip \
   -H 'Content-Type: application/json' \
-  -d "{\"message_id\":$MID,\"reason\":\"$REASON\",\"by\":\"skill\"}" \
+  -d "{\"message_id\":\"$MID\",\"reason\":\"$REASON\",\"by\":\"skill\"}" \
   --max-time 3 \
   || echo "warn: /api/claude/skip failed for #$MID; will retry next loop"
 ```
