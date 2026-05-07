@@ -158,6 +158,12 @@ export const API_PATHS = {
   SAFETY_RULES: '/api/safety/rules',
   SAFETY_CHECK: '/api/safety/check',
 
+  // D-Skip Mark (CR-001 / F-011, Sprint 5)
+  CLAUDE_SKIP: '/api/claude/skip',
+  CLAUDE_SKIPPED: '/api/claude/skipped',
+  CLAUDE_UNSKIP: '/api/claude/unskip',
+  CLAUDE_PENDING: '/api/claude/pending',
+
   // WebSocket
   WS_UI: '/ws/ui',
 
