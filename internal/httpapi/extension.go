@@ -790,10 +790,28 @@ func handleSetAutoMode(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 // --- helpers ---
 
 func requireLocalUser(ctx context.Context, db *store.DB, cfg *config.Config) (*store.User, error) {
+	var (
+		user *store.User
+		err  error
+	)
 	if cfg == nil {
-		return db.EnsureLocalUser(ctx, "", "")
+		user, err = db.EnsureLocalUser(ctx, "", "")
+	} else {
+		user, err = db.EnsureLocalUser(ctx, cfg.LocalUserEmail, cfg.LocalUserName)
 	}
-	return db.EnsureLocalUser(ctx, cfg.LocalUserEmail, cfg.LocalUserName)
+	if err != nil || user == nil {
+		return user, err
+	}
+	// If still on the default placeholder, try to detect the real chat
+	// identity from observed messages. Idempotent and cheap once set.
+	if user.Name == "" || user.Name == "Local Extension User" {
+		if err := db.AutoDetectChatIdentity(ctx, user.ID); err == nil {
+			if u, err2 := db.GetUserByID(ctx, user.ID); err2 == nil && u != nil {
+				user = u
+			}
+		}
+	}
+	return user, nil
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
