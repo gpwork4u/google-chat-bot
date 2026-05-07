@@ -158,6 +158,12 @@ export const API_PATHS = {
   SAFETY_RULES: '/api/safety/rules',
   SAFETY_CHECK: '/api/safety/check',
 
+  // D-Skip Mark (CR-001 / F-011, Sprint 5)
+  CLAUDE_SKIP: '/api/claude/skip',
+  CLAUDE_SKIPPED: '/api/claude/skipped',
+  CLAUDE_UNSKIP: '/api/claude/unskip',
+  CLAUDE_PENDING: '/api/claude/pending',
+
   // WebSocket
   WS_UI: '/ws/ui',
 
@@ -244,3 +250,34 @@ export const LABELS = {
   SAFETY_FLAG_MONEY: '金錢',
   SAFETY_BADGE_ARIA_LABEL: '安全護欄警示，點擊查看觸發原因',
 } as const
+
+// ─── D-Skip Reason Enum ───────────────────────────────────────────────────────
+// Skill skip reason values（軟 enum，對應 f011-skip-mark.md § Business Rules）
+
+export const SKIP_REASONS = {
+  // Skill-driven skip reasons
+  PURE_ACK: 'pure-ack',
+  OVERHEARD: 'overheard',
+  POLICY_REDLINE: 'policy-redline',
+  NOT_TARGETED: 'not-targeted',
+  LOW_INFO: 'low-info',
+
+  // Backend-auto skip reasons
+  NOT_MENTIONED: 'not-mentioned',
+  SELF_SENT: 'self-sent',
+  BLOCKED_KEYWORD_PREFIX: 'blocked-keyword:',
+} as const
+
+export type SkipReason = (typeof SKIP_REASONS)[keyof typeof SKIP_REASONS]
+
+// ─── D-Skip skipped_by Enum ───────────────────────────────────────────────────
+// 誰執行了 skip（對應 migration 0018 CHECK constraint）
+
+export const SKIPPED_BY = {
+  SKILL: 'skill',
+  BACKEND_AUTO: 'backend_auto',
+  MANUAL: 'manual',
+  BACKFILL: 'backfill',
+} as const
+
+export type SkippedBy = (typeof SKIPPED_BY)[keyof typeof SKIPPED_BY]
