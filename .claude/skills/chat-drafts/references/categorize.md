@@ -52,6 +52,20 @@
 
 **Meta / AI 自我相關質疑不算 skip**（例：「這是你回的嗎」、「以後都不知道是不是你回了嗎」、「因為沒開嗎」）— 當作 A daily-chat 回，見 `references/daily-chat.md` 的 Meta 段。
 
+#### D 子類 → reason 對應（呼叫 /api/claude/skip 時使用）
+
+判定 D 後依下表選擇 `reason` 傳給 skip endpoint：
+
+| D 子情境 | reason 值 |
+|---------|-----------|
+| 純確認回覆（「好」「OK」「收到」「thx」「+1」「了解」「沒問題」） | `pure-ack` |
+| 別人之間的對話，local user 不是目標對象（@他人 / 「OO 你來看」） | `overheard` |
+| 政策紅線命中（金錢 / 匯款 / 報價 / 法務 / 密碼 / 人事 / 薪資 / 過度承諾） | `policy-redline` |
+| 訊息明確指向別人或純公告 / FYI | `not-targeted` |
+| 資訊量過低（emoji-only / 單一表情 / 讚）無法有意義回覆 | `low-info` |
+
+> 其他情境（bot / system / blocked_keywords / 問題已解 / thread 最後是自己）依最貼近的上述值選，優先用 `pure-ack`（純確認）或 `not-targeted`（不是給我的）。
+
 ## 分類優先序
 1. 先看有沒有踩 skip 條件 → D
 2. 看有沒有技術訊號（error、服務名、檔名、repo 名、指令、git、SQL、log） → C
