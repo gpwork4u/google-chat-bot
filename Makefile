@@ -54,7 +54,7 @@ web-clean:
 # 一次性工具：列出將會被 skip 的 pending 訊息（dry-run，不寫 DB）。
 # 確認輸出無誤後，執行 make backfill-skip-apply 真的標記。
 backfill-skip:
-	go run ./cmd/backfill-skip --dry-run
+	go run ./cmd/backfill-skip
 
 # apply 模式：真的呼叫 POST /api/claude/skip 標記訊息。
 # 執行前請確認 backend 已啟動（make dev / docker compose up）。
