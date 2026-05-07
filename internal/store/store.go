@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -52,7 +53,7 @@ func Migrate(ctx context.Context, db *DB) error {
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if !e.IsDir() {
+		if !e.IsDir() && !strings.HasSuffix(e.Name(), ".down.sql") {
 			names = append(names, e.Name())
 		}
 	}
