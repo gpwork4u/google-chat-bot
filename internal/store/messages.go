@@ -24,6 +24,13 @@ type Message struct {
 	Body       string
 	ObservedAt time.Time
 	CreatedAt  time.Time
+
+	// Skip-mark fields (F-011 / CR-001). Non-nil SkippedAt means this message
+	// was intentionally bypassed and will not appear in /api/claude/pending.
+	// These are written atomically in the same INSERT as the message row.
+	SkippedAt  *time.Time
+	SkipReason string
+	SkippedBy  string
 }
 
 type Draft struct {
@@ -48,7 +55,29 @@ type Draft struct {
 // On conflict we also fill in sender_id if the incoming row carries one
 // and the existing row doesn't yet — lets a later ingest path (e.g.
 // list_topics replay) enrich a row first inserted by webchannel.
+//
+// If m.SkippedAt is non-nil the skip columns are written in the same INSERT,
+// making the auto-skip decision race-free (no separate UPDATE needed).
 func (db *DB) InsertOrGetMessage(ctx context.Context, m *Message) (inserted bool, err error) {
+	if m.SkippedAt != nil {
+		// Skip-aware path: write skipped_at, skip_reason, skipped_by atomically.
+		const q = `
+INSERT INTO messages (user_id, space_key, space_name, thread_key, message_key, sender_id, sender_name, sender_is_me, body, observed_at, skipped_at, skip_reason, skipped_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+ON CONFLICT (user_id, message_key) DO UPDATE SET
+    sender_id = CASE
+        WHEN messages.sender_id = '' AND EXCLUDED.sender_id <> '' THEN EXCLUDED.sender_id
+        ELSE messages.sender_id
+    END
+RETURNING id, created_at, (xmax = 0) AS inserted`
+		return inserted, db.QueryRow(ctx, q,
+			m.UserID, m.SpaceKey, m.SpaceName, m.ThreadKey, m.MessageKey,
+			m.SenderID, m.SenderName, m.SenderIsMe, m.Body, m.ObservedAt,
+			m.SkippedAt, m.SkipReason, m.SkippedBy,
+		).Scan(&m.ID, &m.CreatedAt, &inserted)
+	}
+
+	// Normal path without skip columns.
 	const q = `
 INSERT INTO messages (user_id, space_key, space_name, thread_key, message_key, sender_id, sender_name, sender_is_me, body, observed_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
