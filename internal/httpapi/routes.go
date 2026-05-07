@@ -16,6 +16,7 @@ func NewRouter(cfg *config.Config, db *store.DB, oauthSvc *oauth.Service, h *hub
 	extensionRoutes(mux, db, cfg, h, ing)
 	wsRoutes(mux, db, cfg, h, ing)
 	claudeRoutes(mux, db, cfg, h, ing)
+	claudeSkipRoutes(mux, db, cfg)
 	debugRoutes(mux, db, cfg, h)
 	draftsRoutes(mux, db, cfg, h)
 	sentRoutes(mux, db, cfg)

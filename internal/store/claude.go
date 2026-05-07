@@ -267,6 +267,7 @@ LEFT JOIN LATERAL (
 ) peer ON TRUE
 WHERE m.user_id = $1
   AND d.id IS NULL
+  AND m.skipped_at IS NULL
   AND COALESCE(s.disabled, TRUE) = FALSE%s%s%s
 ORDER BY m.observed_at DESC
 LIMIT $2`, selfFilter, mentionFilter, sinceFilter)
