@@ -15,10 +15,10 @@ func TestParseListMembersProfiles(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	want := map[string]MemberProfile{
-		"100107566064769605671": {ID: "100107566064769605671", DisplayName: "Cheen Liao廖群", Email: "cheenl@ailabs.tw"},
-		"105221304721163032917": {ID: "105221304721163032917", DisplayName: "AILabs All", Email: "all@ailabs.tw"},
-		"115556091904137332172": {ID: "115556091904137332172", DisplayName: "Jordan Wu吳紹宇", Email: "jordan.wu@ailabs.tw"},
-		"113078794454697666226": {ID: "113078794454697666226", DisplayName: "Arial Lin林雅萍", Email: "arial@ailabs.tw"},
+		"100107566064769605671": {ID: "100107566064769605671", DisplayName: "User One已隱去", Email: "user1@example.test"},
+		"105221304721163032917": {ID: "105221304721163032917", DisplayName: "Fake Group", Email: "all@example.test"},
+		"115556091904137332172": {ID: "115556091904137332172", DisplayName: "User Two已隱去", Email: "user2@example.test"},
+		"113078794454697666226": {ID: "113078794454697666226", DisplayName: "User Three已隱去", Email: "user3@example.test"},
 	}
 	got := map[string]MemberProfile{}
 	for _, p := range profiles {
