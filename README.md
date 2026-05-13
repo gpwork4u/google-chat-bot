@@ -44,30 +44,21 @@
 
 ## 本地啟動
 
-### 1. Google Cloud 設定
-
-[Google Cloud Console](https://console.cloud.google.com/)：
-
-1. 建立／選擇專案。
-2. 啟用 API：**Google Chat API**、**Workspace Events API**、**Cloud Pub/Sub API**。
-3. **OAuth consent screen**：User Type 選 `Internal`（Workspace 內部）。
-4. **OAuth 2.0 Client ID** → Web application，redirect URI 設 `http://localhost:8080/oauth/callback`，記下 Client ID / Secret。
-
-### 2. 環境變數
+### 1. 環境變數
 
 ```bash
 cp .env.example .env
 ```
 
 ```bash
-GOOGLE_CLIENT_ID=<上一步取得>
-GOOGLE_CLIENT_SECRET=<上一步取得>
-TOKEN_ENCRYPTION_KEY=$(openssl rand -base64 32)   # 32 bytes，加密 DB 裡的 OAuth token
-STATE_SIGNING_KEY=$(openssl rand -base64 32)      # 簽 OAuth state cookie 防 CSRF
 ANTHROPIC_API_KEY=<Claude API key>                # draft 生成用
+TOKEN_ENCRYPTION_KEY=$(openssl rand -base64 32)   # 加密 DB 裡的敏感欄位
+STATE_SIGNING_KEY=$(openssl rand -base64 32)      # cookie 簽章
 ```
 
-### 3. 啟動 backend
+> **不需要 Google Cloud / OAuth 設定**：本專案走 extension-only 模式，由 Chrome extension 直接攔 Google Chat 自身的 batchexecute / WebChannel 流量，再 proxy 到 localhost:8080。Backend 偵測到 `GOOGLE_CLIENT_ID` 為空時會 log `oauth disabled; extension-only mode` 並跳過 OAuth 路由。
+
+### 2. 啟動 backend
 
 ```bash
 make dev
@@ -75,16 +66,14 @@ make dev
 
 流程：`docker-compose up -d postgres` → 自動跑 migrations → `:8080` 啟動 HTTP server（含已 build 的 web/dist）。
 
-打開 <http://localhost:8080/> → 「用 Google 帳號授權」走 OAuth。
-
-### 4. 安裝 Chrome Extension
+### 3. 安裝 Chrome Extension
 
 1. Chrome → `chrome://extensions/` → 開啟「開發者模式」。
 2. 「載入未封裝項目」→ 選 `extension/` 目錄。
 3. 打開 Google Chat（`mail.google.com/chat/` 或 `chat.google.com`），extension 會自動連 localhost:8080。
-4. 點 extension popup 切換 auto-mode。
+4. 點 extension popup 切換 auto-mode；打開 <http://localhost:8080/> 看 Inbox / Approval / Settings。
 
-### 5. Web UI 開發
+### 4. Web UI 開發
 
 ```bash
 make web-dev        # vite dev server
