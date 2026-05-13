@@ -13,3 +13,6 @@ chat_session.json
 .claude/scheduled_tasks.lock
 .claude/cache/
 .claude/worktrees/
+
+# Built binary at repo root (only for local dev)
+/backfill-skip
