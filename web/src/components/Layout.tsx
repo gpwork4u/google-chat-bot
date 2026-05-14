@@ -5,6 +5,7 @@ import AutoModeToggle from './AutoModeToggle'
 const navLinks = [
   { to: '/approvals', label: 'Approvals' },
   { to: '/sent', label: 'Sent' },
+  { to: '/pending', label: 'Pending' },
   { to: '/settings', label: 'Settings' },
 ]
 
