@@ -14,7 +14,7 @@ func NewRouter(cfg *config.Config, db *store.DB, h *hub.Hub, ing Ingestor) http.
 	extensionRoutes(mux, db, cfg, h, ing)
 	wsRoutes(mux, db, cfg, h, ing)
 	claudeRoutes(mux, db, cfg, h, ing)
-	claudeSkipRoutes(mux, db, cfg)
+	claudeSkipRoutes(mux, db, cfg, h)
 	debugRoutes(mux, db, cfg, h)
 	draftsRoutes(mux, db, cfg, h)
 	sentRoutes(mux, db, cfg)

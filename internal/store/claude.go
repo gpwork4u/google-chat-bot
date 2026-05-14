@@ -169,6 +169,16 @@ type ClaudePending struct {
 	Mentioned  bool      `json:"mentioned"` // whether this row contains an "@<local user>" mention
 }
 
+// ClaudePendingFilter carries optional filter params for ListClaudePending / CountClaudePending.
+// Zero value applies no additional filters.
+type ClaudePendingFilter struct {
+	SpaceKey       string // exact match on space_key; empty = all
+	SenderContains string // ILIKE %value% on sender_name; empty = all
+	BodyContains   string // ILIKE %value% on body; empty = all
+	MentionedOnly  bool   // only messages where mentioned=true
+	Offset         int    // pagination offset >= 0
+}
+
 // ListClaudePending returns the messages that match the user's current
 // answer-filtering preferences:
 //   - sender is not me (relaxed when debug=true)
@@ -196,10 +206,18 @@ type ClaudePending struct {
 // room either way.
 //
 // Returned in time-descending order (newest first); cap with limit.
-func (db *DB) ListClaudePending(ctx context.Context, userID int64, since time.Time, limit int, debug bool) ([]ClaudePending, error) {
+func (db *DB) ListClaudePending(ctx context.Context, userID int64, since time.Time, limit int, debug bool, filter ...ClaudePendingFilter) ([]ClaudePending, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	var f ClaudePendingFilter
+	if len(filter) > 0 {
+		f = filter[0]
+	}
+	if f.Offset < 0 {
+		f.Offset = 0
+	}
+
 	selfFilter := `
   AND m.sender_is_me = FALSE
   AND (COALESCE(u.name, '') = '' OR m.sender_name IS NULL OR m.sender_name = '' OR lower(m.sender_name) <> lower(u.name))`
@@ -219,6 +237,31 @@ func (db *DB) ListClaudePending(ctx context.Context, userID int64, since time.Ti
   AND m.observed_at >= $3::timestamptz`
 		args = append(args, since)
 	}
+
+	// Additional optional filters from ClaudePendingFilter
+	extraClauses := ""
+	if f.SpaceKey != "" {
+		args = append(args, f.SpaceKey)
+		extraClauses += fmt.Sprintf("\n  AND m.space_key = $%d", len(args))
+	}
+	if f.SenderContains != "" {
+		args = append(args, "%"+f.SenderContains+"%")
+		extraClauses += fmt.Sprintf("\n  AND COALESCE(NULLIF(cm.display_name, ''), m.sender_name) ILIKE $%d", len(args))
+	}
+	if f.BodyContains != "" {
+		args = append(args, "%"+f.BodyContains+"%")
+		extraClauses += fmt.Sprintf("\n  AND m.body ILIKE $%d", len(args))
+	}
+	if f.MentionedOnly {
+		extraClauses += "\n  AND (COALESCE(u.name, '') <> '' AND position(lower('@' || u.name) in lower(m.body)) > 0)"
+	}
+
+	offsetClause := ""
+	if f.Offset > 0 {
+		args = append(args, f.Offset)
+		offsetClause = fmt.Sprintf(" OFFSET $%d", len(args))
+	}
+
 	q := fmt.Sprintf(`
 SELECT
   m.id,
@@ -268,9 +311,9 @@ LEFT JOIN LATERAL (
 WHERE m.user_id = $1
   AND d.id IS NULL
   AND m.skipped_at IS NULL
-  AND COALESCE(s.disabled, TRUE) = FALSE%s%s%s
+  AND COALESCE(s.disabled, TRUE) = FALSE%s%s%s%s
 ORDER BY m.observed_at DESC
-LIMIT $2`, selfFilter, mentionFilter, sinceFilter)
+LIMIT $2%s`, selfFilter, mentionFilter, sinceFilter, extraClauses, offsetClause)
 	rows, err := db.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -288,4 +331,75 @@ LIMIT $2`, selfFilter, mentionFilter, sinceFilter)
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// CountClaudePending returns the total count of pending messages matching the
+// same filters as ListClaudePending (excluding LIMIT/OFFSET), for pagination.
+func (db *DB) CountClaudePending(ctx context.Context, userID int64, since time.Time, debug bool, filter ...ClaudePendingFilter) (int, error) {
+	var f ClaudePendingFilter
+	if len(filter) > 0 {
+		f = filter[0]
+	}
+
+	selfFilter := `
+  AND m.sender_is_me = FALSE
+  AND (COALESCE(u.name, '') = '' OR m.sender_name IS NULL OR m.sender_name = '' OR lower(m.sender_name) <> lower(u.name))`
+	mentionFilter := `
+  AND (
+    COALESCE(us.reply_only_when_mentioned, FALSE) = FALSE
+    OR (COALESCE(u.name, '') <> '' AND position(lower('@' || u.name) in lower(m.body)) > 0)
+  )`
+	if debug {
+		selfFilter = ""
+		mentionFilter = ""
+	}
+
+	args := []any{userID}
+	sinceFilter := ""
+	if !since.IsZero() {
+		args = append(args, since)
+		sinceFilter = fmt.Sprintf("\n  AND m.observed_at >= $%d::timestamptz", len(args))
+	}
+
+	extraClauses := ""
+	if f.SpaceKey != "" {
+		args = append(args, f.SpaceKey)
+		extraClauses += fmt.Sprintf("\n  AND m.space_key = $%d", len(args))
+	}
+	if f.SenderContains != "" {
+		args = append(args, "%"+f.SenderContains+"%")
+		extraClauses += fmt.Sprintf("\n  AND COALESCE(NULLIF(cm.display_name, ''), m.sender_name) ILIKE $%d", len(args))
+	}
+	if f.BodyContains != "" {
+		args = append(args, "%"+f.BodyContains+"%")
+		extraClauses += fmt.Sprintf("\n  AND m.body ILIKE $%d", len(args))
+	}
+	if f.MentionedOnly {
+		extraClauses += "\n  AND (COALESCE(u.name, '') <> '' AND position(lower('@' || u.name) in lower(m.body)) > 0)"
+	}
+
+	q := fmt.Sprintf(`
+SELECT COUNT(*)
+FROM messages m
+LEFT JOIN drafts d
+  ON d.message_id = m.id
+LEFT JOIN space_settings s
+  ON s.user_id = m.user_id AND s.space_key = m.space_key
+LEFT JOIN user_settings us
+  ON us.user_id = m.user_id
+LEFT JOIN users u
+  ON u.id = m.user_id
+LEFT JOIN chat_members cm
+  ON cm.user_id = m.user_id AND cm.member_id = m.sender_id
+WHERE m.user_id = $1
+  AND d.id IS NULL
+  AND m.skipped_at IS NULL
+  AND COALESCE(s.disabled, TRUE) = FALSE%s%s%s%s`,
+		selfFilter, mentionFilter, sinceFilter, extraClauses)
+
+	var total int
+	if err := db.QueryRow(ctx, q, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
 }

@@ -155,6 +155,59 @@ Sprint 1 + Sprint 2 所有 `/api/*` endpoints。
 
 ---
 
+## Pending / Skipped (F-013, Sprint 6)
+
+### `GET /api/claude/pending`
+- **Owner**: backend (claude.go)
+- **Consumer**: PendingPage (frontend), Claude Code skill
+- **Query params**:
+  - `limit` (int, 1..200, default 50)
+  - `offset` (int, >= 0, default 0)
+  - `space_key` (string, exact match)
+  - `sender_contains` (string, ILIKE substring)
+  - `body_contains` (string, ILIKE substring)
+  - `mentioned_only` (bool, `true` to filter `mentioned=true`)
+  - `debug` (bool)
+- **Response**:
+  ```json
+  {
+    "pending": [ ClaudePending ],
+    "total": 42,
+    "next_offset": 50,
+    "reply_only_when_mentioned": bool,
+    "auto_mode": bool,
+    "blocked_keywords": "...",
+    "local_user_name": "...",
+    "local_user_email": "...",
+    "debug": bool
+  }
+  ```
+- **Errors**: `400 INVALID_PARAM` (limit/offset out of range)
+
+### `GET /api/claude/skipped`
+- **Owner**: backend (claude_skip.go)
+- **Consumer**: PendingPage (Skipped tab), QA
+- **Query params**:
+  - `limit` (int, 1..200, default 50)
+  - `offset` (int, >= 0, default 0)
+  - `since` (RFC3339)
+  - `by` (string, skipped_by filter)
+  - `space_key` (string, exact match)
+  - `sender_contains` (string, ILIKE substring)
+  - `body_contains` (string, ILIKE substring)
+- **Response**:
+  ```json
+  {
+    "items": [ SkippedItem ],
+    "total": 99,
+    "next_offset": 50,
+    "next_since": "2026-01-01T00:00:00Z"
+  }
+  ```
+- **Errors**: `400 INVALID_PARAM` (limit < 1 or > 200, offset < 0, since not RFC3339)
+
+---
+
 ## WebSocket
 
 ### `GET /ws/ui`
@@ -164,6 +217,7 @@ Sprint 1 + Sprint 2 所有 `/api/*` endpoints。
   - `{ "type": "draft_created", "draft": { ...DraftForUI } }`
   - `{ "type": "draft_removed", "draft_id": "<string>" }`
   - `{ "type": "settings_updated", "settings": { ...Settings } }`
+  - `{ "type": "pending_changed", "reason": "new_message"|"skipped"|"unskipped"|"drafted", "message_id": "<string>" }`
   - Legacy (backwards compat): `{ "type": "inbox_changed" }`, `{ "type": "settings_changed" }`
 
 ---

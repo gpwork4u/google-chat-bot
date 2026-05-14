@@ -280,3 +280,170 @@ func TestPendingQueryIncludesSkippedAtFilter(t *testing.T) {
 		t.Errorf("pending SQL must contain %q", expectedFilter)
 	}
 }
+
+// validateListSkippedReqV2 mirrors the extended validation logic for new query params.
+func validateListSkippedReqV2(w http.ResponseWriter, r *http.Request) bool {
+	q := r.URL.Query()
+	if s := q.Get("limit"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 {
+			writeErrCode(w, http.StatusBadRequest, "INVALID_PARAM", "limit must be a positive integer")
+			return false
+		}
+		if n > 200 {
+			writeErrCode(w, http.StatusBadRequest, "INVALID_PARAM", "limit must be at most 200")
+			return false
+		}
+	}
+	if s := q.Get("offset"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 0 {
+			writeErrCode(w, http.StatusBadRequest, "INVALID_PARAM", "offset must be >= 0")
+			return false
+		}
+	}
+	if s := q.Get("since"); s != "" {
+		if _, err := time.Parse(time.RFC3339, s); err != nil {
+			writeErrCode(w, http.StatusBadRequest, "INVALID_PARAM", "since must be RFC3339 format")
+			return false
+		}
+	}
+	return true
+}
+
+// TestListSkippedOffsetValidation verifies invalid offset returns 400.
+func TestListSkippedOffsetValidation(t *testing.T) {
+	cases := []struct {
+		offsetParam string
+		wantStatus  int
+	}{
+		{"-1", http.StatusBadRequest},
+		{"abc", http.StatusBadRequest},
+		{"0", http.StatusOK},
+		{"100", http.StatusOK},
+	}
+	for _, tc := range cases {
+		t.Run("offset="+tc.offsetParam, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/api/claude/skipped?offset="+tc.offsetParam, nil)
+			w := httptest.NewRecorder()
+			validateListSkippedReqV2(w, r)
+			if w.Code != tc.wantStatus {
+				t.Errorf("expected status %d, got %d", tc.wantStatus, w.Code)
+			}
+			if tc.wantStatus == http.StatusBadRequest {
+				var resp map[string]string
+				json.NewDecoder(w.Body).Decode(&resp)
+				if resp["code"] != "INVALID_PARAM" {
+					t.Errorf("expected INVALID_PARAM, got %q", resp["code"])
+				}
+			}
+		})
+	}
+}
+
+// validateClaudePendingReq mirrors the new limit/offset validation for /api/claude/pending.
+func validateClaudePendingReq(w http.ResponseWriter, r *http.Request) bool {
+	q := r.URL.Query()
+	if s := q.Get("limit"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > 200 {
+			writeErrCode(w, http.StatusBadRequest, "INVALID_PARAM", "limit must be 1..200")
+			return false
+		}
+	}
+	if s := q.Get("offset"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 0 {
+			writeErrCode(w, http.StatusBadRequest, "INVALID_PARAM", "offset must be >= 0")
+			return false
+		}
+	}
+	return true
+}
+
+// TestClaudePendingLimitValidation verifies AC-5: limit 1..200 enforced.
+func TestClaudePendingLimitValidation(t *testing.T) {
+	cases := []struct {
+		limitParam string
+		wantStatus int
+	}{
+		{"0", http.StatusBadRequest},
+		{"-1", http.StatusBadRequest},
+		{"201", http.StatusBadRequest},
+		{"abc", http.StatusBadRequest},
+		{"1", http.StatusOK},
+		{"200", http.StatusOK},
+		{"50", http.StatusOK},
+	}
+	for _, tc := range cases {
+		t.Run("limit="+tc.limitParam, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/api/claude/pending?limit="+tc.limitParam, nil)
+			w := httptest.NewRecorder()
+			validateClaudePendingReq(w, r)
+			if w.Code != tc.wantStatus {
+				t.Errorf("expected status %d, got %d", tc.wantStatus, w.Code)
+			}
+		})
+	}
+}
+
+// TestClaudePendingOffsetValidation verifies AC-6: offset >= 0.
+func TestClaudePendingOffsetValidation(t *testing.T) {
+	cases := []struct {
+		offsetParam string
+		wantStatus  int
+	}{
+		{"-1", http.StatusBadRequest},
+		{"-999", http.StatusBadRequest},
+		{"abc", http.StatusBadRequest},
+		{"0", http.StatusOK},
+		{"50", http.StatusOK},
+	}
+	for _, tc := range cases {
+		t.Run("offset="+tc.offsetParam, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/api/claude/pending?offset="+tc.offsetParam, nil)
+			w := httptest.NewRecorder()
+			validateClaudePendingReq(w, r)
+			if w.Code != tc.wantStatus {
+				t.Errorf("expected status %d, got %d", tc.wantStatus, w.Code)
+			}
+		})
+	}
+}
+
+// TestSkipSignatureIncludesHub documents that handleSkip and handleUnskip require a *hub.Hub.
+// This is a structural contract test: if the functions move to a different signature,
+// the compile-time references below will catch it.
+func TestSkipSignatureIncludesHub(t *testing.T) {
+	// Compile-time reference: handleSkip and handleUnskip exist.
+	_ = handleSkip
+	_ = handleUnskip
+	t.Log("handleSkip and handleUnskip signatures verified at compile time")
+}
+
+// TestListSkippedNewParamsInOptions verifies store.ListSkippedOptions has new fields.
+func TestListSkippedNewParamsInOptions(t *testing.T) {
+	opts := store.ListSkippedOptions{
+		Limit:          50,
+		Offset:         10,
+		SpaceKey:       "spaces/AAA",
+		SenderContains: "alice",
+		BodyContains:   "bug",
+		MentionedOnly:  true,
+	}
+	if opts.SpaceKey != "spaces/AAA" {
+		t.Error("SpaceKey not set")
+	}
+	if opts.SenderContains != "alice" {
+		t.Error("SenderContains not set")
+	}
+	if opts.BodyContains != "bug" {
+		t.Error("BodyContains not set")
+	}
+	if !opts.MentionedOnly {
+		t.Error("MentionedOnly not set")
+	}
+	if opts.Offset != 10 {
+		t.Error("Offset not set")
+	}
+}

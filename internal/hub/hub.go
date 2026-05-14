@@ -13,14 +13,17 @@ import (
 // Type values:
 //   - Legacy (notification-only): "inbox_changed" | "settings_changed" | "spaces_changed"
 //   - New (payload-bearing):      "draft_created" | "draft_removed" | "settings_updated"
+//   - F-013:                      "pending_changed"
 //
 // Sprint 3 will remove the legacy types; during Sprint 2 both coexist for
 // backward-compat (ApprovalsPage still uses inbox_changed via SWR refetch).
 type UIEvent struct {
-	Type     string          `json:"type"`
-	Draft    json.RawMessage `json:"draft,omitempty"`    // for draft_created: full draft object
-	DraftID  string          `json:"draft_id,omitempty"` // for draft_removed: string to allow symbolic IDs
-	Settings json.RawMessage `json:"settings,omitempty"` // for settings_updated
+	Type      string          `json:"type"`
+	Draft     json.RawMessage `json:"draft,omitempty"`      // for draft_created: full draft object
+	DraftID   string          `json:"draft_id,omitempty"`   // for draft_removed: string to allow symbolic IDs
+	Settings  json.RawMessage `json:"settings,omitempty"`   // for settings_updated
+	Reason    string          `json:"reason,omitempty"`     // for pending_changed: new_message|skipped|unskipped|drafted
+	MessageID string          `json:"message_id,omitempty"` // for pending_changed: identifies the affected message
 }
 
 // ExtEvent is delivered to extension WebSocket clients.
@@ -188,6 +191,13 @@ func (h *Hub) ActivityBump() {
 }
 
 func (h *Hub) Pending(item any) { h.PublishExt(ExtEvent{Type: "pending", Pending: item}) }
+
+// PendingChanged broadcasts a pending_changed event to UI clients.
+// reason is one of: new_message, skipped, unskipped, drafted.
+// messageID is the message_key of the affected message.
+func (h *Hub) PendingChanged(reason, messageID string) {
+	h.PublishUI(UIEvent{Type: "pending_changed", Reason: reason, MessageID: messageID})
+}
 
 func (h *Hub) RefreshSpaces(spaceIDs []string) {
 	if len(spaceIDs) == 0 {
