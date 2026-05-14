@@ -1,14 +1,21 @@
 {
   "epic": "https://github.com/gpwork4u/google-chat-bot/issues/1",
   "current_sprint": {
-    "number": 4,
-    "issue": "https://github.com/gpwork4u/google-chat-bot/issues/47",
-    "milestone": "Sprint 4: 安全護欄（金錢偵測）+ 技術債清理"
+    "number": 5,
+    "issue": "https://github.com/gpwork4u/google-chat-bot/issues/68",
+    "milestone": "Sprint 5: CR-001 D-skip mark"
   },
-  "phase": "phase-2-spec",
-  "last_action": "Sprint 4 spec 已發佈（F-008 + tech-debt）",
-  "next_action": "Sprint 4 spec 已發佈，待 /specflow:plan 啟動 tech-lead",
+  "phase": "phase-6-close",
+  "last_action": "verifier PASS（Sprint 5 三維度通過，1 WARNING：api.md 未補 F-011 endpoints）",
+  "next_action": "確認後關閉 milestone #5 + #68，決定 release 或進下一 sprint",
   "in_flight_agents": [],
   "open_questions": [],
-  "updated_at": "2026-05-06T00:00:00Z"
+  "updated_at": "2026-05-14T13:19:19Z",
+  "lane_closed": {
+    "feature": true,
+    "design": true,
+    "qa": true,
+    "bug": true
+  },
+  "sprint_review_outcome": "pass_with_warning"
 }
