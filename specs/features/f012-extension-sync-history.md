@@ -18,7 +18,7 @@ So that 之後 space-facts-mining skill 可從完整歷史 mine 出 per-space co
 
 ## 範圍（In Scope）
 
-1. Migration 0020: `space_history_sync_jobs` table
+1. Migration 0021: `space_history_sync_jobs` table
 2. Backend endpoints：
    - `POST /api/extension/sync-history/start`
    - `POST /api/extension/sync-history` (batch insert)
@@ -154,7 +154,7 @@ Response 200。
 
 ## Data Model
 
-### Migration 0020
+### Migration 0021
 
 ```sql
 CREATE TABLE space_history_sync_jobs (
