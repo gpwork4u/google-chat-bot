@@ -8,7 +8,13 @@
     "test": "bddgen && playwright test",
     "test:f001": "bddgen && playwright test --grep @f001",
     "test:f002": "bddgen && playwright test --grep @f002",
-    "report": "playwright show-report reports/html"
+    "test:e2e": "playwright test --config=playwright.e2e.config.ts",
+    "test:e2e:f012": "playwright test --config=playwright.e2e.config.ts e2e/f012",
+    "test:e2e:f013": "playwright test --config=playwright.e2e.config.ts e2e/f013",
+    "test:e2e:f004": "playwright test --config=playwright.e2e.config.ts e2e/f004",
+    "test:e2e:f011": "playwright test --config=playwright.e2e.config.ts e2e/f011",
+    "report": "playwright show-report reports/html",
+    "report:e2e": "playwright show-report reports/playwright-report"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^10.9.0",
