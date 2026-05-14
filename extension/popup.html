@@ -4,13 +4,15 @@
 <meta charset="utf-8">
 <title>Chat AI Agent</title>
 <style>
-  body { font-family: system-ui, -apple-system, sans-serif; width: 280px; padding: 12px; margin: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; width: 300px; padding: 12px; margin: 0; }
   h1 { font-size: 14px; margin: 0 0 10px; color: #202124; }
   .row { display: flex; align-items: center; justify-content: space-between; margin: 8px 0; font-size: 13px; }
   .status { padding: 6px 8px; border-radius: 4px; font-size: 12px; margin: 8px 0; }
   .status.ok { background: #e6f4ea; color: #137333; }
   .status.err { background: #fce8e6; color: #c5221f; }
-  button { font-size: 13px; padding: 4px 10px; cursor: pointer; }
+  button { font-size: 13px; padding: 4px 10px; cursor: pointer; border: 1px solid #dadce0; border-radius: 4px; background: #fff; color: #1a73e8; }
+  button:hover:not(:disabled) { background: #f8f9fa; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
   .link { color: #1a73e8; text-decoration: none; font-size: 13px; }
   .link:hover { text-decoration: underline; }
   label { font-size: 13px; }
@@ -22,6 +24,17 @@
     background: white; border-radius: 50%; transition: .2s; }
   input:checked + .slider { background: #1a73e8; }
   input:checked + .slider:before { transform: translateX(16px); }
+
+  /* Sync section */
+  .sync-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e8eaed; }
+  .sync-section h2 { font-size: 12px; font-weight: 600; color: #5f6368; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .sync-btn { display: block; width: 100%; margin-bottom: 6px; text-align: left; }
+  .sync-progress { margin-top: 8px; padding: 6px 8px; background: #f8f9fa; border-radius: 4px; font-size: 12px; color: #5f6368; display: none; }
+  .sync-progress.visible { display: block; }
+  .sync-toast { margin-top: 6px; padding: 6px 8px; border-radius: 4px; font-size: 12px; display: none; }
+  .sync-toast.visible { display: block; }
+  .sync-toast.ok { background: #e6f4ea; color: #137333; }
+  .sync-toast.err { background: #fce8e6; color: #c5221f; }
 </style>
 </head>
 <body>
@@ -35,6 +48,16 @@
   <a class="link" href="http://localhost:8080/app" target="_blank">開啟收件匣</a>
   <a class="link" href="http://localhost:8080/healthz" target="_blank">後端狀態</a>
 </div>
+
+<!-- Sync History Section -->
+<div class="sync-section">
+  <h2>同步歷史</h2>
+  <button id="sync-all" data-testid="sync-history-all" class="sync-btn">同步所有 space 歷史</button>
+  <button id="sync-current" data-testid="sync-history-current" class="sync-btn" style="display:none">同步此 space 歷史</button>
+  <div id="sync-progress" data-testid="sync-progress" class="sync-progress"></div>
+  <div id="sync-toast" class="sync-toast"></div>
+</div>
+
 <script src="popup.js"></script>
 </body>
 </html>
