@@ -206,3 +206,106 @@ setInterval(async () => {
     // drop
   }
 }, 30000);
+
+// --- 6. Sync History scan loop -------------------------------------------
+//
+// Popup → content.js: chrome.tabs.sendMessage({ type: 'sync-history-scan', job_id, space_key? })
+// content.js → inject-main.js: window.postMessage({ from:'content', type:'sync-history-scan', ... }, '*')
+// inject-main.js → content.js: window.postMessage({ source:'chat-agent-main', type:'sync-history-batch', messages:[...] }, '*')
+// content.js → backend: fetch POST /api/extension/sync-history { job_id, messages }
+// inject-main.js → content.js: window.postMessage({ source:'chat-agent-main', type:'sync-history-done', job_id }, '*')
+// content.js → backend: fetch POST /api/extension/sync-history/complete { job_id, status:'completed' }
+
+// Track active sync jobs to avoid duplicate triggers.
+const activeSyncJobs = new Set();
+
+// Listen for sync-history-scan from popup (sent via chrome.tabs.sendMessage).
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === 'sync-history-scan') {
+    const { job_id, space_key } = msg;
+    if (!job_id) {
+      sendResponse({ ok: false, error: 'missing job_id' });
+      return;
+    }
+    if (activeSyncJobs.has(job_id)) {
+      sendResponse({ ok: false, error: 'already running' });
+      return;
+    }
+    activeSyncJobs.add(job_id);
+    // Kick off scan in MAIN world
+    window.postMessage({
+      source: 'chat-agent-content',
+      type: 'sync-history-scan',
+      job_id,
+      space_key: space_key || null,
+    }, '*');
+    sendResponse({ ok: true });
+  }
+});
+
+// Handle messages coming back from inject-main.js (MAIN world).
+window.addEventListener('message', (ev) => {
+  if (ev.source !== window) return;
+  const data = ev.data || {};
+  if (data.source !== 'chat-agent-main') return;
+
+  if (data.type === 'sync-history-batch' && data.job_id && Array.isArray(data.messages)) {
+    postSyncHistoryBatch(data.job_id, data.messages).catch((e) => {
+      warn('sync-history-batch POST failed', e);
+    });
+    return;
+  }
+
+  if (data.type === 'sync-history-done' && data.job_id) {
+    activeSyncJobs.delete(data.job_id);
+    completeSyncHistory(data.job_id, 'completed', null).catch((e) => {
+      warn('sync-history/complete POST failed', e);
+    });
+    return;
+  }
+
+  if (data.type === 'sync-history-error' && data.job_id) {
+    activeSyncJobs.delete(data.job_id);
+    completeSyncHistory(data.job_id, 'failed', data.error || 'unknown error').catch((e) => {
+      warn('sync-history/complete (error) POST failed', e);
+    });
+    return;
+  }
+});
+
+async function postSyncHistoryBatch(jobId, messages) {
+  if (!messages.length) return;
+  const res = await fetch(`${BACKEND_HTTP}/api/extension/sync-history`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ job_id: jobId, messages }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    warn(`sync-history batch failed ${res.status}:`, text);
+    return;
+  }
+  const result = await res.json().catch(() => ({}));
+  log('sync-history batch', {
+    inserted: result.inserted,
+    duplicates: result.duplicates,
+    failed: result.failed,
+    job_total_so_far: result.job_total_so_far,
+  });
+}
+
+async function completeSyncHistory(jobId, status, errorMessage) {
+  const body = { job_id: jobId, status };
+  if (errorMessage) body.error_message = errorMessage;
+  const res = await fetch(`${BACKEND_HTTP}/api/extension/sync-history/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    warn(`sync-history/complete failed ${res.status}:`, text);
+    return;
+  }
+  log('sync-history complete', { job_id: jobId, status });
+}

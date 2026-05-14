@@ -75,6 +75,29 @@ export const TESTIDS = {
   SPACE_FILTER: 'space-filter',
   SEARCH_INPUT: 'search-input',
 
+  // --- PendingPage (F-013) ---
+  PENDING_PAGE: 'pending-page',
+  PENDING_TAB_PENDING: 'pending-tab-pending',
+  PENDING_TAB_SKIPPED: 'pending-tab-skipped',
+  PENDING_TAB_DRAFTED: 'pending-tab-drafted',
+  PENDING_ROW: 'pending-row',
+  PENDING_SKIP_BTN: 'pending-skip-btn',
+  PENDING_UNSKIP_BTN: 'pending-unskip-btn',
+  PENDING_SKIP_REASON_MENU: 'pending-skip-reason-menu',
+  PENDING_SKIP_REASON_OPTION: 'pending-skip-reason-option',
+  SENDER_FILTER: 'sender-filter',
+  BODY_FILTER: 'body-filter',
+  MENTIONED_FILTER: 'mentioned-filter',
+  PENDING_LOAD_MORE: 'pending-load-more',
+  PENDING_EMPTY_STATE: 'pending-empty-state',
+  PENDING_ROW_EXPAND: 'pending-row-expand',
+
+  // --- Settings (F-004/F-012) Sprint 6 additions ---
+  SETTINGS_PENDING_LINK: 'settings-pending-link',
+  SYNC_HISTORY_ALL: 'sync-history-all',
+  SYNC_HISTORY_CURRENT: 'sync-history-current',
+  SYNC_PROGRESS: 'sync-progress',
+
   // --- SettingsPage (F-004) page-level ---
   SETTINGS_PAGE: 'settings-page',
   SETTINGS_GLOBAL_SECTION: 'global-section',
@@ -164,6 +187,12 @@ export const API_PATHS = {
   CLAUDE_UNSKIP: '/api/claude/unskip',
   CLAUDE_PENDING: '/api/claude/pending',
 
+  // Sync History (F-012, Sprint 6)
+  SYNC_HISTORY_START: '/api/extension/sync-history/start',
+  SYNC_HISTORY_BATCH: '/api/extension/sync-history',
+  SYNC_HISTORY_COMPLETE: '/api/extension/sync-history/complete',
+  SYNC_HISTORY_STATUS: '/api/extension/sync-history/status',
+
   // WebSocket
   WS_UI: '/ws/ui',
 
@@ -202,6 +231,17 @@ export const TOAST = {
   // SettingsPage — Profile facts
   PROFILE_ADDED: '已新增',
   PROFILE_DELETED: '已刪除',
+
+  // PendingPage — Skip / Unskip (F-013)
+  SKIPPED: '已 skip',
+  UNSKIPPED: '已復原 skip',
+  SKIP_FAILED: 'Skip 失敗，請重試',
+  UNSKIP_FAILED: '復原失敗，請重試',
+  PENDING_EMPTY: '目前沒有等待處理的訊息 🎉',
+
+  // Extension popup — Sync history (F-012/F-004)
+  SYNC_DONE: '同步完成',
+  SYNC_FAILED: '同步失敗，請重試',
 } as const
 
 export type ToastText = (typeof TOAST)[keyof typeof TOAST]
@@ -234,6 +274,14 @@ export const LABELS = {
 
   // SettingsPage freshness error
   FRESHNESS_ERROR: '請輸入 1–1440 之間的數字',
+
+  // PendingPage tabs (F-013)
+  PENDING_TAB: 'Pending',
+  SKIPPED_TAB: 'Skipped',
+  DRAFTED_TAB: 'Drafted',
+  BUTTON_SKIP: 'Skip',
+  BUTTON_UNSKIP: 'Unskip',
+  MENTIONED_FILTER_LABEL: '只看 @我',
 
   // SettingsPage Safety Rails (F-008, Sprint 4)
   SAFETY_SECTION_TITLE: '安全護欄',
@@ -281,3 +329,17 @@ export const SKIPPED_BY = {
 } as const
 
 export type SkippedBy = (typeof SKIPPED_BY)[keyof typeof SKIPPED_BY]
+
+// ─── Manual Skip Reasons (F-013) ─────────────────────────────────────────────
+// Reason enum for manual skip via /pending page
+
+export const MANUAL_SKIP_REASONS = {
+  PURE_ACK: 'pure-ack',
+  OVERHEARD: 'overheard',
+  POLICY_REDLINE: 'policy-redline',
+  NOT_TARGETED: 'not-targeted',
+  LOW_INFO: 'low-info',
+  MANUAL_OTHER: 'manual-other',
+} as const
+
+export type ManualSkipReason = (typeof MANUAL_SKIP_REASONS)[keyof typeof MANUAL_SKIP_REASONS]
