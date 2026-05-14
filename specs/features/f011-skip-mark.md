@@ -162,6 +162,24 @@ CREATE INDEX idx_messages_pending_active
 
 ---
 
+## Sprint 6 增補 AC（來自 CR-002）
+
+### Pending viewer 手動 skip
+- [ ] AC-CR002-1: 從 Pending viewer 點某 row 的「Skip」→ 彈 reason 選單 → 選 reason → POST `/api/claude/skip` with `{message_id, reason, by: "manual"}` → 200，該訊息從 Pending tab 消失
+- [ ] AC-CR002-2: WS event `pending_changed` 廣播 reason="skipped"，其他開啟 Pending viewer 的 tab 自動 SWR revalidate
+- [ ] AC-CR002-3: 已被 backend_auto 或 skill 標 skip 的訊息出現在 Pending viewer 的 Skipped tab，可用 by filter 區分（顯示 `by` badge）
+
+### Pending viewer 手動 unskip
+- [ ] AC-CR002-4: Skipped tab 點某 row「Unskip」→ POST `/api/claude/unskip` → 該訊息消失 Skipped tab，回到 Pending tab
+- [ ] AC-CR002-5: WS event `pending_changed` 廣播 reason="unskipped"
+
+### 回歸
+- [ ] AC-CR002-R1: chat-drafts skill 仍依舊呼叫 `/api/claude/skip` with `by="skill"`（與 manual 共存，不互相干擾）
+- [ ] AC-CR002-R2: F-002 Approval queue 不顯示 skipped 訊息（與既有 F-011 AC 一致）
+
+---
+
 ## 相關
 - CR-001: `specs/changes/CR-001.md`
-- 影響 features: F-002（approval queue）
+- CR-002: `specs/changes/CR-002.md`
+- 影響 features: F-002（approval queue）、F-013（pending viewer 新頁）

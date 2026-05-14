@@ -121,3 +121,19 @@ So that 我不用回到舊版 single-page UI 也能調整這些參數
 ## Scenarios
 
 詳見 `f004-settings.feature`
+
+---
+
+## Sprint 6+7 增補 AC（來自 CR-002）
+
+### Sprint 6: Sync history 按鈕入口
+- [ ] AC-CR002-S1: Chrome extension popup 顯示「Sync all spaces」按鈕（`data-testid="sync-history-all"`）
+- [ ] AC-CR002-S2: Chrome extension popup 在打開的 chat space 頁面時，顯示「Sync this space」按鈕（`data-testid="sync-history-current"`）
+- [ ] AC-CR002-S3: 點按鈕後彈出進度顯示，poll `/api/extension/sync-history/status` 每 2 秒更新
+
+### Sprint 7: Space facts section
+- [ ] AC-CR002-S4: 進入 `/settings` 看到 Global + Channels + Profile + **Space 事實** 四個 sections（順序保留 Profile 在上、Space facts 在下）
+- [ ] AC-CR002-S5: Space facts section 頂部顯示「待審核 candidate: N 筆」連到 `/space-facts/candidates`（`data-testid="space-facts-pending-badge"`）
+- [ ] AC-CR002-S6: Space facts section 列出 per-space 卡片，顯示 space_name + approved facts 總數
+- [ ] AC-CR002-S7: 點某 space 卡片進入 `/space-facts/{space_key}` 詳情頁
+- [ ] AC-CR002-S8: 候選總數為 0 時，徽章顯示 0（不隱藏）；approved 0 的 space 卡片仍顯示但 facts 數量為 0
