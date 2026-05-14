@@ -1,17 +1,15 @@
 package httpapi
 
 import (
-	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/ailabs-tw/google-chat-bot/internal/config"
 	"github.com/ailabs-tw/google-chat-bot/internal/hub"
-	"github.com/ailabs-tw/google-chat-bot/internal/oauth"
 	"github.com/ailabs-tw/google-chat-bot/internal/store"
 )
 
-func NewRouter(cfg *config.Config, db *store.DB, oauthSvc *oauth.Service, h *hub.Hub, ing Ingestor) http.Handler {
+func NewRouter(cfg *config.Config, db *store.DB, h *hub.Hub, ing Ingestor) http.Handler {
 	mux := http.NewServeMux()
 	extensionRoutes(mux, db, cfg, h, ing)
 	wsRoutes(mux, db, cfg, h, ing)
@@ -29,24 +27,6 @@ func NewRouter(cfg *config.Config, db *store.DB, oauthSvc *oauth.Service, h *hub
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-
-	if oauthSvc != nil {
-		mux.HandleFunc("GET /oauth/start", oauthSvc.Start)
-		mux.HandleFunc("GET /oauth/callback", func(w http.ResponseWriter, r *http.Request) {
-			email, err := oauthSvc.Callback(w, r)
-			if err != nil {
-				http.Error(w, "授權失敗: "+err.Error(), http.StatusBadRequest)
-				return
-			}
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = fmt.Fprintf(w, `<!doctype html>
-<html lang="zh-Hant"><body style="font-family:system-ui;max-width:640px;margin:4rem auto;line-height:1.6">
-<h1>授權完成</h1>
-<p>已以 <code>%s</code> 的身分授權成功，token 已加密寫入資料庫。</p>
-<p><a href="/app/">前往收件匣</a></p>
-</body></html>`, email)
-		})
-	}
 
 	return logMiddleware(corsMiddleware(mux))
 }
