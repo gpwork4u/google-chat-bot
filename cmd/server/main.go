@@ -7,14 +7,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/ailabs-tw/google-chat-bot/internal/config"
 	"github.com/ailabs-tw/google-chat-bot/internal/httpapi"
 	"github.com/ailabs-tw/google-chat-bot/internal/hub"
-	"github.com/ailabs-tw/google-chat-bot/internal/oauth"
 	"github.com/ailabs-tw/google-chat-bot/internal/store"
 	"github.com/ailabs-tw/google-chat-bot/internal/worker"
 )
@@ -51,20 +49,10 @@ func main() {
 	}
 	slog.Info("migrations applied")
 
-	var oauthSvc *oauth.Service
-	if strings.TrimSpace(cfg.GoogleClientID) != "" &&
-		strings.TrimSpace(cfg.GoogleClientSecret) != "" &&
-		strings.TrimSpace(cfg.GoogleRedirectURL) != "" &&
-		len(cfg.TokenEncryptionKey) == 32 &&
-		len(cfg.StateSigningKey) > 0 {
-		oauthSvc = oauth.New(cfg, db)
-	} else {
-		slog.Info("oauth disabled; extension-only mode")
-	}
 	h := hub.New()
 	chatProc := worker.NewChatProcessor(db, h, cfg.LocalUserEmail, cfg.LocalUserName)
 	chatProc.SetChatSessionFile(cfg.ChatSessionFile)
-	router := httpapi.NewRouter(cfg, db, oauthSvc, h, chatProc)
+	router := httpapi.NewRouter(cfg, db, h, chatProc)
 
 	go chatProc.Run(ctx)
 

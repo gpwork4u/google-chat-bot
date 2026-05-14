@@ -30,7 +30,7 @@ func webRoutes(mux *http.ServeMux) {
 		_, _ = w.Write(appHTML)
 	})
 
-	// SPA handler: 所有非 /api/* /ws/* /healthz /oauth/* /legacy/* 的路徑
+	// SPA handler: 所有非 /api/* /ws/* /healthz /legacy/* 的路徑
 	// 都交給 React Router 處理（fallback to index.html）。
 	mux.Handle("/", newSPAHandler())
 }
@@ -38,7 +38,7 @@ func webRoutes(mux *http.ServeMux) {
 // newSPAHandler returns an http.Handler that serves the Vite SPA from distFS.
 //
 // Routing rules:
-//  1. Path starts with /api/, /ws/, /healthz, /oauth/, /legacy → skip (caller handles)
+//  1. Path starts with /api/, /ws/, /healthz, /legacy → skip (caller handles)
 //  2. Path matches a real file in dist/ → serve the file (assets, favicon…)
 //  3. Everything else → return dist/index.html for client-side routing (React Router)
 func newSPAHandler() http.Handler {
@@ -52,7 +52,7 @@ func newSPAHandler() http.Handler {
 		path := r.URL.Path
 
 		// Hand off to their own registered handlers.
-		for _, prefix := range []string{"/api/", "/ws/", "/healthz", "/oauth/", "/legacy"} {
+		for _, prefix := range []string{"/api/", "/ws/", "/healthz", "/legacy"} {
 			if strings.HasPrefix(path, prefix) {
 				http.NotFound(w, r)
 				return

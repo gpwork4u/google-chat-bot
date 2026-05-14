@@ -18,11 +18,10 @@
 ┌────────────────────────────────────────────────────────────┐
 │  Go backend (cmd/server)                                   │
 │  ├─ httpapi/   REST + WebSocket Hub (/ws/ui, /ws/ext)      │
-│  ├─ worker/    chat_processor、draft_sender                │
+│  ├─ worker/    chat_processor                              │
 │  ├─ parser/    WebChannel + 各 batchexecute RPC 反序列化   │
 │  ├─ safety/    金錢/承諾/首次對話 → 強制降級 draft         │
-│  ├─ oauth/     Google OAuth + AES-GCM token 加密           │
-│  └─ store/     pgxpool + embedded migrations (18 個)       │
+│  └─ store/     pgxpool + embedded migrations (19 個)       │
 └────────────────┬───────────────────────────────────────────┘
                  │                            │
                  ▼                            ▼
@@ -40,7 +39,7 @@
 - **Skip 機制**：mention-only、blocked keywords、self 訊息自動 skip，支援手動 skip / unskip。
 - **語氣學習**：profile facts（public / private / secret 三層）+ pgvector corpus 檢索（規劃中）。
 - **Per-space 設定**：每個 space 可獨立覆寫 auto-mode、mention-only。
-- **送訊不靠 session.json**：透過 extension proxy 走 batchexecute，使用 OAuth token。
+- **送訊走 extension**：所有送訊由 Chrome extension 攔 Google Chat 自己的 batchexecute / WebChannel 流量代發，backend 不直接呼叫 Google API。
 
 ## 本地啟動
 
@@ -52,11 +51,9 @@ cp .env.example .env
 
 ```bash
 ANTHROPIC_API_KEY=<Claude API key>                # draft 生成用
-TOKEN_ENCRYPTION_KEY=$(openssl rand -base64 32)   # 加密 DB 裡的敏感欄位
-STATE_SIGNING_KEY=$(openssl rand -base64 32)      # cookie 簽章
 ```
 
-> **不需要 Google Cloud / OAuth 設定**：本專案走 extension-only 模式，由 Chrome extension 直接攔 Google Chat 自身的 batchexecute / WebChannel 流量，再 proxy 到 localhost:8080。Backend 偵測到 `GOOGLE_CLIENT_ID` 為空時會 log `oauth disabled; extension-only mode` 並跳過 OAuth 路由。
+> Extension-only 模式：不需要 Google Cloud / OAuth 設定，亦不需要 service account。
 
 ### 2. 啟動 backend
 
@@ -90,15 +87,13 @@ make contracts      # 從 Go types 重新產 TS contracts
 │   └── backfill-skip/      # 一次性 D-skip backfill 工具（F-011-pipe1）
 ├── internal/
 │   ├── config/             # env loading
-│   ├── cryptoutil/         # AES-GCM token 加密
-│   ├── googleapi/          # Google API client wrappers
+│   ├── googleapi/          # 瀏覽器 session 載入（batchexecute stylesync 用）
 │   ├── hub/                # WebSocket hub（broadcast + debounce）
 │   ├── httpapi/            # REST + WS routes，內嵌 web/dist
-│   ├── oauth/              # Google OAuth flow
 │   ├── parser/             # WebChannel + batchexecute 反序列化
 │   ├── safety/             # 金錢/承諾/首次對話偵測
 │   ├── store/              # pgxpool + migrations/*.sql（自動執行）
-│   └── worker/             # chat_processor、draft_sender
+│   └── worker/             # chat_processor
 ├── web/                    # Vite + React UI（Inbox / Approval / Settings）
 ├── extension/              # Chrome MV3 extension
 ├── specs/                  # SpecFlow 規格 + Gherkin .feature 場景
