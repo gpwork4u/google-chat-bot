@@ -12,6 +12,7 @@ import (
 func NewRouter(cfg *config.Config, db *store.DB, h *hub.Hub, ing Ingestor) http.Handler {
 	mux := http.NewServeMux()
 	extensionRoutes(mux, db, cfg, h, ing)
+	syncHistoryRoutes(mux, db, cfg)
 	wsRoutes(mux, db, cfg, h, ing)
 	claudeRoutes(mux, db, cfg, h, ing)
 	claudeSkipRoutes(mux, db, cfg)
