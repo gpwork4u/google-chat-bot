@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import useSWR from 'swr'
 import { api, fetcher } from '../api/client'
 import { useSettings } from '../hooks/useSettings'
@@ -801,7 +802,16 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-xl font-semibold text-gray-100">設定</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-gray-100">設定</h1>
+        <Link
+          to="/pending"
+          data-testid={TESTIDS.SETTINGS_PENDING_LINK}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-400 border border-indigo-800 rounded-md hover:bg-indigo-950 hover:text-indigo-300 transition-colors"
+        >
+          待處理訊息
+        </Link>
+      </div>
 
       {/* ── Global Section ── */}
       <section data-testid={TESTIDS.GLOBAL_SECTION} aria-label="全域設定" className="space-y-0">
