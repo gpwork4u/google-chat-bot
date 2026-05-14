@@ -87,3 +87,37 @@
 | `fact-key` | `<input>` | Profile fact 名稱輸入 |
 | `fact-value` | `<textarea>` | Profile fact 內容輸入 |
 | `fact-visibility` | `<select>` | 可見度選擇 |
+
+---
+
+## PendingPage (F-013)
+
+| testid | 元素 | 用途 |
+|--------|------|------|
+| `pending-page` | `<div>` | PendingPage 根容器 |
+| `pending-tab-pending` | `<button>` | 切到 Pending tab |
+| `pending-tab-skipped` | `<button>` | 切到 Skipped tab |
+| `pending-tab-drafted` | `<button>` | 切到 Drafted tab |
+| `pending-row` | `<article>` | 每筆訊息 row 容器。附帶 `data-message-id` |
+| `pending-skip-btn` | `<button>` | Skip 按鈕（Pending tab） |
+| `pending-unskip-btn` | `<button>` | Unskip 按鈕（Skipped tab） |
+| `pending-skip-reason-menu` | `<div role="menu">` | Skip reason 選單 popup |
+| `pending-skip-reason-option` | `<button role="menuitem">` | Reason 選單 item，附帶 `data-reason` |
+| `space-filter` | `<select>` | Space 過濾（沿用 SentPage 命名） |
+| `sender-filter` | `<input>` | sender_contains 文字輸入 |
+| `body-filter` | `<input>` | body_contains 文字輸入 |
+| `mentioned-filter` | `<input type="checkbox">` | mentioned_only 勾選 |
+| `pending-load-more` | `<button>` | 載入下 50 筆 |
+| `pending-empty-state` | `<div>` | 空狀態容器 |
+| `pending-row-expand` | `<button>` | 展開 body 全文 |
+
+---
+
+## Extension Popup / Settings (F-004/F-012)
+
+| testid | 元素 | 用途 |
+|--------|------|------|
+| `sync-history-all` | `<button>` | 同步所有 space 歷史（popup.html） |
+| `sync-history-current` | `<button>` | 同步此 space 歷史（popup.html，僅 chat.google.com） |
+| `sync-progress` | `<div>` | 同步進度顯示區（popup.html） |
+| `settings-pending-link` | `<a>` | Settings 頁「Pending 訊息檢視」連結 |
