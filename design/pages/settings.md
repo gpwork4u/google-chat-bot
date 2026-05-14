@@ -3,6 +3,42 @@
 ## 對應 Feature
 
 #20 F-004: Settings 頁
+#87 F-004-fe1: Sprint 6 — popup sync buttons + Pending 訊息連結（AC-CR002-S1 ~ S3）
+
+---
+
+## Sprint 6 增補：Navbar / 頁面 Nav 加 Pending 連結
+
+F-013 AC 要求 Settings 頁提供「Pending 訊息檢視」入口連結，點擊跳至 `/pending`。
+
+### 實作位置
+
+加在 **Settings 頁 Page Header 下方**，以一個 hint banner 顯示（不修改 Navbar 全域 nav，避免 sprint 6 外的影響）。
+
+```tsx
+{/* Settings 頁 Pending hint — Sprint 6 新增 */}
+<div className="flex items-center justify-between py-2.5 px-3 mb-4 bg-[--color-info-subtle] border border-[--color-info-default]/30 rounded-md text-sm">
+  <span className="text-[--color-info-strong]">
+    想檢視等待處理的訊息？
+  </span>
+  <a
+    href="/pending"
+    className="flex items-center gap-1 text-[--color-text-link] font-medium hover:underline focus:outline-none focus:underline"
+    aria-label="前往 Pending 訊息檢視頁"
+  >
+    Pending 訊息檢視
+    <ChevronRight size={14} aria-hidden="true" />
+  </a>
+</div>
+```
+
+此 hint banner 僅在 `/settings` 頁顯示，不影響 Navbar。
+
+### 若 Navbar 需加 nav item（Sprint 7 以後）
+
+記錄在 `design/open-questions.md`，本 sprint 不動 Navbar。
+
+---
 
 ## Layout（桌面 >= 1024px）
 
