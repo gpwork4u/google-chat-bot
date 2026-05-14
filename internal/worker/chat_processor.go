@@ -399,6 +399,8 @@ func (p *ChatProcessor) tick(ctx context.Context) error {
 	if p.hub != nil {
 		if inserted > 0 {
 			p.hub.ActivityBump()
+			// AC-10: broadcast pending_changed once per batch for new non-skipped messages
+			p.hub.PendingChanged("new_message", "")
 		}
 		if drafted > 0 {
 			p.broadcastPending(ctx)
@@ -557,6 +559,8 @@ func (p *ChatProcessor) Ingest(ctx context.Context, kind, url string, payload js
 	if p.hub != nil {
 		if inserted > 0 {
 			p.hub.ActivityBump()
+			// AC-10: broadcast pending_changed once per ingest batch for new non-skipped messages
+			p.hub.PendingChanged("new_message", "")
 		}
 		if drafted > 0 {
 			p.broadcastPending(ctx)
@@ -597,6 +601,8 @@ func (p *ChatProcessor) ingestWebchannelFrame(ctx context.Context, url string, p
 	if p.hub != nil {
 		if inserted > 0 {
 			p.hub.ActivityBump()
+			// AC-10: broadcast pending_changed for new non-skipped messages from webchannel push
+			p.hub.PendingChanged("new_message", "")
 		}
 		if drafted > 0 {
 			p.broadcastPending(ctx)

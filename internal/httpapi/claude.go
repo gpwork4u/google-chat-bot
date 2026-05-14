@@ -57,21 +57,53 @@ func handleClaudePending(w http.ResponseWriter, r *http.Request, db *store.DB, c
 		writeErr(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+
+	q := r.URL.Query()
+
+	// limit: 1..200, default 50; strict validation per AC-5
 	limit := 50
-	if s := r.URL.Query().Get("limit"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 200 {
-			limit = n
+	if s := q.Get("limit"); s != "" {
+		n, err2 := strconv.Atoi(s)
+		if err2 != nil || n < 1 || n > 200 {
+			writeErrCode(w, http.StatusBadRequest, "INVALID_PARAM", "limit must be 1..200")
+			return
 		}
+		limit = n
 	}
+
+	// offset: >= 0; AC-6
+	offset := 0
+	if s := q.Get("offset"); s != "" {
+		n, err2 := strconv.Atoi(s)
+		if err2 != nil || n < 0 {
+			writeErrCode(w, http.StatusBadRequest, "INVALID_PARAM", "offset must be >= 0")
+			return
+		}
+		offset = n
+	}
+
 	debug := false
-	if s := strings.ToLower(r.URL.Query().Get("debug")); s == "1" || s == "true" || s == "yes" {
+	if s := strings.ToLower(q.Get("debug")); s == "1" || s == "true" || s == "yes" {
 		debug = true
 	}
+
 	var since time.Time
 	if ing != nil {
 		since = ing.SessionStart()
 	}
-	pending, err := db.ListClaudePending(ctx, user.ID, since, limit, debug)
+
+	// AC-1..4: optional filter params
+	filter := store.ClaudePendingFilter{
+		SpaceKey:       strings.TrimSpace(q.Get("space_key")),
+		SenderContains: strings.TrimSpace(q.Get("sender_contains")),
+		BodyContains:   strings.TrimSpace(q.Get("body_contains")),
+		Offset:         offset,
+	}
+	if strings.ToLower(q.Get("mentioned_only")) == "true" {
+		filter.MentionedOnly = true
+	}
+
+	pending, err := db.ListClaudePending(ctx, user.ID, since, limit, debug, filter)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -79,6 +111,18 @@ func handleClaudePending(w http.ResponseWriter, r *http.Request, db *store.DB, c
 	if pending == nil {
 		pending = []store.ClaudePending{}
 	}
+
+	total, err := db.CountClaudePending(ctx, user.ID, since, debug, filter)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	nextOffset := offset + len(pending)
+	if nextOffset >= total {
+		nextOffset = 0
+	}
+
 	// Surface the filter + send-mode state so the agent knows which
 	// conditions are on and whether to auto-send its reply.
 	settings, _ := db.GetUserSettings(ctx, user.ID)
@@ -91,6 +135,8 @@ func handleClaudePending(w http.ResponseWriter, r *http.Request, db *store.DB, c
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"pending":                   pending,
+		"total":                     total,
+		"next_offset":               nextOffset,
 		"reply_only_when_mentioned": mentionOnly,
 		"auto_mode":                 autoMode,
 		"blocked_keywords":          blocked,
@@ -203,6 +249,8 @@ func handleClaudeReply(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 		// clear the single-dispatch claim so the updated body gets pushed.
 		h.ReleaseDraft(draftID)
 		h.InboxChanged()
+		// AC-13: broadcast pending_changed reason=drafted (message moved from pending to draft)
+		h.PendingChanged("drafted", msg.MessageKey)
 		if status == "approved" {
 			pushPendingForClaude(ctx, db, h, user.ID)
 		}

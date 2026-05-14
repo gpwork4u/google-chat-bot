@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ailabs-tw/google-chat-bot/internal/config"
+	"github.com/ailabs-tw/google-chat-bot/internal/hub"
 	"github.com/ailabs-tw/google-chat-bot/internal/store"
 )
 
@@ -26,15 +27,15 @@ var allowedSkippedBy = map[string]bool{
 	"backfill":     true,
 }
 
-func claudeSkipRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config) {
+func claudeSkipRoutes(mux *http.ServeMux, db *store.DB, cfg *config.Config, h *hub.Hub) {
 	mux.HandleFunc("POST /api/claude/skip", func(w http.ResponseWriter, r *http.Request) {
-		handleSkip(w, r, db, cfg)
+		handleSkip(w, r, db, cfg, h)
 	})
 	mux.HandleFunc("GET /api/claude/skipped", func(w http.ResponseWriter, r *http.Request) {
 		handleListSkipped(w, r, db, cfg)
 	})
 	mux.HandleFunc("POST /api/claude/unskip", func(w http.ResponseWriter, r *http.Request) {
-		handleUnskip(w, r, db, cfg)
+		handleUnskip(w, r, db, cfg, h)
 	})
 }
 
@@ -66,7 +67,7 @@ type unskipResp struct {
 	SkippedBy  *string `json:"skipped_by"`
 }
 
-func handleSkip(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+func handleSkip(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
 	ctx := r.Context()
 	user, err := requireLocalUser(ctx, db, cfg)
 	if err != nil {
@@ -114,6 +115,11 @@ func handleSkip(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *confi
 		return
 	}
 
+	// AC-11: broadcast pending_changed reason=skipped
+	if h != nil {
+		h.PendingChanged("skipped", result.MessageID)
+	}
+
 	writeJSON(w, http.StatusOK, skipResp{
 		MessageID:  result.MessageID,
 		SkippedAt:  result.SkippedAt,
@@ -147,6 +153,17 @@ func handleListSkipped(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 		limit = n
 	}
 
+	// offset: default 0
+	offset := 0
+	if s := q.Get("offset"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 0 {
+			writeErrCode(w, http.StatusBadRequest, "INVALID_PARAM", "offset must be >= 0")
+			return
+		}
+		offset = n
+	}
+
 	// since: optional RFC3339
 	var since time.Time
 	if s := q.Get("since"); s != "" {
@@ -159,11 +176,18 @@ func handleListSkipped(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 	}
 
 	by := strings.TrimSpace(q.Get("by"))
+	spaceKey := strings.TrimSpace(q.Get("space_key"))
+	senderContains := strings.TrimSpace(q.Get("sender_contains"))
+	bodyContains := strings.TrimSpace(q.Get("body_contains"))
 
 	opts := store.ListSkippedOptions{
-		Limit: limit,
-		Since: since,
-		By:    by,
+		Limit:          limit,
+		Offset:         offset,
+		Since:          since,
+		By:             by,
+		SpaceKey:       spaceKey,
+		SenderContains: senderContains,
+		BodyContains:   bodyContains,
 	}
 
 	items, err := db.ListSkipped(ctx, user.ID, opts)
@@ -175,7 +199,18 @@ func handleListSkipped(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 		items = []store.SkippedItem{}
 	}
 
-	// next_since: the skipped_at of the last (oldest) item, for pagination cursor.
+	total, err := db.CountSkipped(ctx, user.ID, opts)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	nextOffset := offset + len(items)
+	if nextOffset >= total {
+		nextOffset = 0 // no more pages
+	}
+
+	// next_since: the skipped_at of the last (oldest) item, for cursor-based pagination.
 	var nextSince *string
 	if len(items) > 0 {
 		last := items[len(items)-1].SkippedAt.UTC().Format(time.RFC3339Nano)
@@ -183,12 +218,14 @@ func handleListSkipped(w http.ResponseWriter, r *http.Request, db *store.DB, cfg
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"items":      items,
-		"next_since": nextSince,
+		"items":       items,
+		"next_since":  nextSince,
+		"total":       total,
+		"next_offset": nextOffset,
 	})
 }
 
-func handleUnskip(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config) {
+func handleUnskip(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub) {
 	ctx := r.Context()
 	user, err := requireLocalUser(ctx, db, cfg)
 	if err != nil {
@@ -213,6 +250,11 @@ func handleUnskip(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *con
 	} else if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	// AC-12: broadcast pending_changed reason=unskipped
+	if h != nil {
+		h.PendingChanged("unskipped", req.MessageID)
 	}
 
 	writeJSON(w, http.StatusOK, unskipResp{

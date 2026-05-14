@@ -96,9 +96,14 @@ WHERE user_id = $1 AND message_key = $2`
 
 // ListSkippedOptions filters for ListSkipped.
 type ListSkippedOptions struct {
-	Limit int       // default 50, max 200
-	Since time.Time // only rows with skipped_at >= Since; zero = no filter
-	By    string    // filter skipped_by; empty = all
+	Limit          int       // default 50, max 200
+	Since          time.Time // only rows with skipped_at >= Since; zero = no filter
+	By             string    // filter skipped_by; empty = all
+	SpaceKey       string    // exact match on space_key; empty = all
+	SenderContains string    // ILIKE %value% on sender_name; empty = all
+	BodyContains   string    // ILIKE %value% on body; empty = all
+	MentionedOnly  bool      // filter mentioned=true (no standalone col; resolved at query time)
+	Offset         int       // pagination offset >= 0
 }
 
 // ListSkipped returns skipped messages for a user, newest-skipped first.
@@ -109,18 +114,38 @@ func (db *DB) ListSkipped(ctx context.Context, userID int64, opts ListSkippedOpt
 	if opts.Limit > 200 {
 		opts.Limit = 200
 	}
+	if opts.Offset < 0 {
+		opts.Offset = 0
+	}
 
 	args := []any{userID, opts.Limit}
-	sinceClause := ""
-	byClause := ""
+	extraClauses := ""
 
 	if !opts.Since.IsZero() {
 		args = append(args, opts.Since)
-		sinceClause = fmt.Sprintf(" AND m.skipped_at >= $%d", len(args))
+		extraClauses += fmt.Sprintf(" AND m.skipped_at >= $%d", len(args))
 	}
 	if opts.By != "" {
 		args = append(args, opts.By)
-		byClause = fmt.Sprintf(" AND m.skipped_by = $%d", len(args))
+		extraClauses += fmt.Sprintf(" AND m.skipped_by = $%d", len(args))
+	}
+	if opts.SpaceKey != "" {
+		args = append(args, opts.SpaceKey)
+		extraClauses += fmt.Sprintf(" AND m.space_key = $%d", len(args))
+	}
+	if opts.SenderContains != "" {
+		args = append(args, "%"+opts.SenderContains+"%")
+		extraClauses += fmt.Sprintf(" AND COALESCE(NULLIF(cm.display_name, ''), m.sender_name) ILIKE $%d", len(args))
+	}
+	if opts.BodyContains != "" {
+		args = append(args, "%"+opts.BodyContains+"%")
+		extraClauses += fmt.Sprintf(" AND m.body ILIKE $%d", len(args))
+	}
+
+	offsetClause := ""
+	if opts.Offset > 0 {
+		args = append(args, opts.Offset)
+		offsetClause = fmt.Sprintf(" OFFSET $%d", len(args))
 	}
 
 	q := `
@@ -136,9 +161,9 @@ FROM messages m
 LEFT JOIN chat_members cm
   ON cm.user_id = m.user_id AND cm.member_id = m.sender_id
 WHERE m.user_id = $1
-  AND m.skipped_at IS NOT NULL` + sinceClause + byClause + `
+  AND m.skipped_at IS NOT NULL` + extraClauses + `
 ORDER BY m.skipped_at DESC
-LIMIT $2`
+LIMIT $2` + offsetClause
 
 	rows, err := db.Query(ctx, q, args...)
 	if err != nil {
@@ -158,4 +183,46 @@ LIMIT $2`
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+// CountSkipped returns the total number of skipped messages matching opts
+// (without LIMIT/OFFSET applied), for pagination total.
+func (db *DB) CountSkipped(ctx context.Context, userID int64, opts ListSkippedOptions) (int, error) {
+	args := []any{userID}
+	extraClauses := ""
+
+	if !opts.Since.IsZero() {
+		args = append(args, opts.Since)
+		extraClauses += fmt.Sprintf(" AND m.skipped_at >= $%d", len(args))
+	}
+	if opts.By != "" {
+		args = append(args, opts.By)
+		extraClauses += fmt.Sprintf(" AND m.skipped_by = $%d", len(args))
+	}
+	if opts.SpaceKey != "" {
+		args = append(args, opts.SpaceKey)
+		extraClauses += fmt.Sprintf(" AND m.space_key = $%d", len(args))
+	}
+	if opts.SenderContains != "" {
+		args = append(args, "%"+opts.SenderContains+"%")
+		extraClauses += fmt.Sprintf(" AND COALESCE(NULLIF(cm.display_name, ''), m.sender_name) ILIKE $%d", len(args))
+	}
+	if opts.BodyContains != "" {
+		args = append(args, "%"+opts.BodyContains+"%")
+		extraClauses += fmt.Sprintf(" AND m.body ILIKE $%d", len(args))
+	}
+
+	q := `
+SELECT COUNT(*)
+FROM messages m
+LEFT JOIN chat_members cm
+  ON cm.user_id = m.user_id AND cm.member_id = m.sender_id
+WHERE m.user_id = $1
+  AND m.skipped_at IS NOT NULL` + extraClauses
+
+	var total int
+	if err := db.QueryRow(ctx, q, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
 }

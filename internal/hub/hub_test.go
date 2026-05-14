@@ -234,6 +234,70 @@ func TestHubSettingsUpdated(t *testing.T) {
 	}
 }
 
+// TestHubPendingChanged verifies that PendingChanged publishes a pending_changed
+// UIEvent with the correct reason and message_id. (AC-11, AC-12, AC-13, AC-14)
+func TestHubPendingChanged(t *testing.T) {
+	cases := []struct {
+		reason    string
+		messageID string
+	}{
+		{"new_message", ""},
+		{"skipped", "msg_001"},
+		{"unskipped", "msg_002"},
+		{"drafted", "msg_003"},
+	}
+	for _, tc := range cases {
+		t.Run("reason="+tc.reason, func(t *testing.T) {
+			h := hub.New()
+			ch, unsub := h.SubscribeUI()
+			defer unsub()
+
+			h.PendingChanged(tc.reason, tc.messageID)
+
+			select {
+			case ev := <-ch:
+				if ev.Type != "pending_changed" {
+					t.Errorf("type = %q, want pending_changed", ev.Type)
+				}
+				if ev.Reason != tc.reason {
+					t.Errorf("reason = %q, want %q", ev.Reason, tc.reason)
+				}
+				if ev.MessageID != tc.messageID {
+					t.Errorf("message_id = %q, want %q", ev.MessageID, tc.messageID)
+				}
+				// payload fields should not bleed into other event types
+				if ev.Draft != nil {
+					t.Error("Draft should be nil for pending_changed")
+				}
+				if ev.DraftID != "" {
+					t.Error("DraftID should be empty for pending_changed")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for pending_changed event")
+			}
+		})
+	}
+}
+
+// TestPendingChangedOmitemptyBackwardCompat verifies existing event types
+// are not broken by the new Reason/MessageID fields (omitempty).
+func TestPendingChangedOmitemptyBackwardCompat(t *testing.T) {
+	ev := hub.UIEvent{Type: "inbox_changed"}
+	b, err := json.Marshal(ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	for _, unexpected := range []string{"reason", "message_id"} {
+		if _, ok := m[unexpected]; ok {
+			t.Errorf("inbox_changed should not have %q field (omitempty violated)", unexpected)
+		}
+	}
+}
+
 // TestHubLegacyHelpers verifies that backward-compat helpers still emit
 // the old notification-only types.
 func TestHubLegacyHelpers(t *testing.T) {

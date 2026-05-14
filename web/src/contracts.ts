@@ -343,3 +343,30 @@ export const MANUAL_SKIP_REASONS = {
 } as const
 
 export type ManualSkipReason = (typeof MANUAL_SKIP_REASONS)[keyof typeof MANUAL_SKIP_REASONS]
+
+// ─── WebSocket Event Types (F-013) ────────────────────────────────────────────
+// UIEvent type values for the /ws/ui WebSocket channel.
+
+export const WS_EVENT_TYPES = {
+  INBOX_CHANGED: 'inbox_changed',
+  SETTINGS_CHANGED: 'settings_changed',
+  SPACES_CHANGED: 'spaces_changed',
+  DRAFT_CREATED: 'draft_created',
+  DRAFT_REMOVED: 'draft_removed',
+  SETTINGS_UPDATED: 'settings_updated',
+  PENDING_CHANGED: 'pending_changed',
+} as const
+
+export type WsEventType = (typeof WS_EVENT_TYPES)[keyof typeof WS_EVENT_TYPES]
+
+// ─── pending_changed Reason Enum (F-013) ─────────────────────────────────────
+// reason values for WS_EVENT_TYPES.PENDING_CHANGED events.
+
+export const PENDING_CHANGED_REASONS = {
+  NEW_MESSAGE: 'new_message',
+  SKIPPED: 'skipped',
+  UNSKIPPED: 'unskipped',
+  DRAFTED: 'drafted',
+} as const
+
+export type PendingChangedReason = (typeof PENDING_CHANGED_REASONS)[keyof typeof PENDING_CHANGED_REASONS]
