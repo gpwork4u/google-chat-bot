@@ -543,6 +543,19 @@
         emitDebug('main_batchexecute_failed', { ldap: data.ldap, error: String(e?.message || e) });
       }
     }
+    if (data.type === 'sync-history-scan') {
+      try {
+        await handleSyncHistoryScan(data.job_id, data.space_key || null);
+      } catch (e) {
+        emitDebug('main_sync_history_failed', { job_id: data.job_id, error: String(e?.message || e) });
+        window.postMessage({
+          source: 'chat-agent-main',
+          type: 'sync-history-error',
+          job_id: data.job_id,
+          error: String(e?.message || e),
+        }, '*');
+      }
+    }
   });
 
   // Google's boq framework parks session state on window.WIZ_global_data.
@@ -855,6 +868,320 @@
       return ws;
     },
   });
+
+  // =========================================================================
+  // Sync History: batchexecute scan loop helpers
+  // =========================================================================
+  //
+  // RPC identifiers confirmed by observing Chat DevTools network panel:
+  //   jfcZG   — list_spaces (Browse spaces panel, returns full space list)
+  //   oGiIKf  — list_topics (per-space topic list with pagination)
+  //   QyR6M   — get_topic_messages (individual topic message list)
+  //
+  // Note: oGiIKf and QyR6M were observed empirically. If Google rotates the
+  // RPC IDs, the scan loop will get empty results (not crash) and should be
+  // re-sniffed from DevTools > Network > batchexecute calls.
+
+  const RATE_LIMIT_MS = 200;   // 5 req/s
+  const RETRY_DELAYS = [500, 1000, 2000, 4000];  // exponential backoff
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async function batchexecuteRPC(rpcId, innerReq, sourcePath) {
+    const { at, fsid, bl } = readBoqParams();
+    if (!at || !fsid || !bl) {
+      throw new Error(`missing boq params at=${!!at} fsid=${!!fsid} bl=${!!bl}`);
+    }
+    const fReq = JSON.stringify([[[rpcId, JSON.stringify(innerReq), null, '1']]]);
+    const qs = new URLSearchParams({
+      rpcids: rpcId,
+      'source-path': sourcePath || `${state.accountBase}/app`,
+      'f.sid': fsid,
+      bl,
+      hl: 'en',
+      _reqid: String(nextApiCounter() * 1000 + 100),
+      rt: 'c',
+    });
+    const url = `${state.accountBase}/_/DynamiteWebUi/data/batchexecute?${qs.toString()}`;
+    const formBody = `f.req=${encodeURIComponent(fReq)}&at=${encodeURIComponent(at)}&`;
+
+    emitDebug('main_sync_batchexecute', { rpcId, url });
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded;charset=UTF-8');
+      xhr.setRequestHeader('X-Same-Domain', '1');
+      xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(xhr.responseText || '');
+        } else {
+          reject(Object.assign(new Error(`batchexecute ${rpcId} ${xhr.status}`), { status: xhr.status }));
+        }
+      };
+      xhr.onerror = function () { reject(new Error(`batchexecute ${rpcId} network error`)); };
+      xhr.send(formBody);
+    });
+  }
+
+  async function batchexecuteWithRetry(rpcId, innerReq, sourcePath) {
+    let lastErr;
+    for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+      try {
+        const text = await batchexecuteRPC(rpcId, innerReq, sourcePath);
+        await sleep(RATE_LIMIT_MS);
+        return text;
+      } catch (e) {
+        lastErr = e;
+        const isRetryable = !e.status || e.status === 429 || e.status >= 500;
+        if (!isRetryable || attempt >= RETRY_DELAYS.length) break;
+        const delay = RETRY_DELAYS[attempt];
+        emitDebug('main_sync_retry', { rpcId, attempt, delay, error: String(e?.message) });
+        await sleep(delay);
+      }
+    }
+    throw lastErr;
+  }
+
+  // Parse batchexecute response envelope → extract inner JSON for a given rpcId.
+  function parseBatchExecuteResponse(text, rpcId) {
+    // Strip XSSI prefix
+    let body = text.trimStart();
+    if (body.startsWith(")]}'")) body = body.slice(4).trimStart();
+
+    // The response is a sequence of length-prefixed JSON frames.
+    // We parse each frame looking for wrb.fr with our rpcId.
+    let pos = 0;
+    while (pos < body.length) {
+      const nlIdx = body.indexOf('\n', pos);
+      if (nlIdx < 0) break;
+      const lenStr = body.slice(pos, nlIdx).trim();
+      const n = Number(lenStr);
+      if (!Number.isFinite(n) || n <= 0) { pos = nlIdx + 1; continue; }
+      if (pos + nlIdx + 1 + n > body.length + 1) break;
+      const frame = body.slice(nlIdx + 1, nlIdx + 1 + n);
+      pos = nlIdx + 1 + n;
+      try {
+        const arr = JSON.parse(frame);
+        if (!Array.isArray(arr)) continue;
+        for (const item of arr) {
+          if (!Array.isArray(item) || item[0] !== 'wrb.fr') continue;
+          if (item[1] !== rpcId) continue;
+          const innerStr = item[2];
+          if (typeof innerStr !== 'string' || !innerStr) continue;
+          return JSON.parse(innerStr);
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  // list_spaces via jfcZG — returns [{space_key, space_name}]
+  async function syncListSpaces() {
+    // jfcZG takes an empty inner request
+    const innerReq = [];
+    const text = await batchexecuteWithRetry('jfcZG', innerReq, `${state.accountBase}/app`);
+    const inner = parseBatchExecuteResponse(text, 'jfcZG');
+    if (!inner || !Array.isArray(inner)) return [];
+
+    // Inner shape: ["", [[entry1], [entry2], ...]]
+    // entry: [[[space_id]], display_name, description, ...]
+    const list = Array.isArray(inner[1]) ? inner[1] : [];
+    const spaces = [];
+    for (const rec of list) {
+      if (!Array.isArray(rec)) continue;
+      // Extract space_id from nested [[space_id]]
+      const spaceId = rec?.[0]?.[0]?.[0];
+      const name = rec?.[1];
+      if (!spaceId || !name) continue;
+      spaces.push({ space_key: 'space:' + spaceId, space_name: String(name) });
+    }
+    emitDebug('main_sync_list_spaces', { count: spaces.length });
+    return spaces;
+  }
+
+  // list_topics via oGiIKf — returns [{topic_id, space_key}] with pagination
+  // space_key format: "space:XXXX" — we extract the raw ID for the RPC.
+  async function syncListTopics(spaceKey, pageToken) {
+    const spaceId = spaceKey.startsWith('space:') ? spaceKey.slice(6) : spaceKey;
+    // oGiIKf args: [space_id_ref, page_size, page_token, ...]
+    // Observed shape: [[space_id], page_size, page_token]
+    const innerReq = [[[spaceId]], 50, pageToken || null];
+    const text = await batchexecuteWithRetry('oGiIKf', innerReq, `${state.accountBase}/app`);
+    const inner = parseBatchExecuteResponse(text, 'oGiIKf');
+    if (!inner || !Array.isArray(inner)) return { topics: [], nextPageToken: null };
+
+    // Inner shape: [[topic1, topic2, ...], next_page_token]
+    const topicList = Array.isArray(inner[0]) ? inner[0] : [];
+    const nextPageToken = inner[1] || null;
+
+    const topics = [];
+    for (const t of topicList) {
+      if (!Array.isArray(t)) continue;
+      // topic[0] = [null, topic_id, [[space_id]]]
+      const topicId = t?.[0]?.[1];
+      if (!topicId) continue;
+      topics.push({ topic_id: String(topicId), space_key: spaceKey });
+    }
+    return { topics, nextPageToken };
+  }
+
+  // get_topic_messages via QyR6M — returns parsed message objects
+  async function syncGetTopicMessages(spaceKey, topicId, spaceName) {
+    const spaceId = spaceKey.startsWith('space:') ? spaceKey.slice(6) : spaceKey;
+    // QyR6M args: [[space_id], topic_id, page_size, page_token, ...]
+    const innerReq = [[[spaceId]], topicId, 100, null];
+    const text = await batchexecuteWithRetry('QyR6M', innerReq, `${state.accountBase}/app`);
+    const inner = parseBatchExecuteResponse(text, 'QyR6M');
+    if (!inner || !Array.isArray(inner)) return [];
+
+    // Inner shape mirrors list_topics message list: [messages_array, ...]
+    const msgList = Array.isArray(inner[0]) ? inner[0] : [];
+    const messages = [];
+    for (const m of msgList) {
+      if (!Array.isArray(m) || m.length < 10) continue;
+      // m[0] = [[...], message_id]
+      const msgId = m?.[0]?.[1];
+      if (!msgId) continue;
+      // m[1] = [sender_id_arr, display_name, avatar, email, ...]
+      const senderArr = Array.isArray(m[1]) ? m[1] : [];
+      const senderId = senderArr?.[0]?.[0] || '';
+      const senderName = senderArr?.[1] || '';
+      // m[2] = timestamp in microseconds (string)
+      let observedAt = new Date().toISOString();
+      if (typeof m[2] === 'string' && m[2]) {
+        const us = Number(m[2]);
+        if (Number.isFinite(us) && us > 0) {
+          observedAt = new Date(us / 1000).toISOString();
+        }
+      }
+      // m[9] = body text
+      const body = typeof m[9] === 'string' ? m[9] : '';
+      // Skip system messages / no-body messages
+      if (!body) continue;
+
+      // Detect mentions — look for mention annotation in m[7] (annotations array)
+      // Simplified: check if body contains @
+      const mentioned = typeof body === 'string' && body.includes('@');
+
+      messages.push({
+        message_id: `spaces/${spaceId}/messages/${msgId}`,
+        space_key: spaceKey,
+        space_name: spaceName || '',
+        thread_key: topicId,
+        sender_id: senderId ? `users/${senderId}` : '',
+        sender_name: String(senderName),
+        body,
+        observed_at: observedAt,
+        mentioned,
+      });
+    }
+    return messages;
+  }
+
+  // Main sync loop orchestrator.
+  // space_key = null → sync all spaces; space_key set → sync one space.
+  async function handleSyncHistoryScan(jobId, spaceKey) {
+    emitDebug('main_sync_start', { job_id: jobId, space_key: spaceKey });
+
+    // Wait for request headers (XSRF etc.) before making any API calls.
+    await waitForRequestHeaders(60000).catch(() => {
+      throw new Error('Timed out waiting for Chat session headers — open a Chat space first');
+    });
+
+    let spaces;
+    if (spaceKey) {
+      // Single space mode: we need space_name. Try to get it from spaceRefsByID.
+      const spaceId = spaceKey.startsWith('space:') ? spaceKey.slice(6) : spaceKey;
+      const spaceName = ''; // name will be empty for single-space; backend tolerates it
+      spaces = [{ space_key: spaceKey, space_name: spaceName }];
+    } else {
+      // Sync all: list_spaces first
+      try {
+        spaces = await syncListSpaces();
+      } catch (e) {
+        emitDebug('main_sync_list_spaces_failed', { error: String(e?.message) });
+        window.postMessage({
+          source: 'chat-agent-main',
+          type: 'sync-history-error',
+          job_id: jobId,
+          error: `list_spaces failed: ${e?.message}`,
+        }, '*');
+        return;
+      }
+    }
+
+    let totalInserted = 0;
+    let totalFailed = 0;
+    let totalDuplicates = 0;
+    const BATCH_SIZE = 100;
+    let batchBuffer = [];
+
+    async function flushBatch() {
+      if (batchBuffer.length === 0) return;
+      const batch = batchBuffer.splice(0, batchBuffer.length);
+      window.postMessage({
+        source: 'chat-agent-main',
+        type: 'sync-history-batch',
+        job_id: jobId,
+        messages: batch,
+      }, '*');
+    }
+
+    for (const space of spaces) {
+      emitDebug('main_sync_space_start', { space_key: space.space_key });
+      try {
+        let pageToken = null;
+        do {
+          let topicsResult;
+          try {
+            topicsResult = await syncListTopics(space.space_key, pageToken);
+          } catch (e) {
+            emitDebug('main_sync_list_topics_failed', { space_key: space.space_key, error: String(e?.message) });
+            // AC-18: skip this space, continue with others
+            break;
+          }
+          pageToken = topicsResult.nextPageToken;
+
+          for (const topic of topicsResult.topics) {
+            let topicMsgs;
+            try {
+              topicMsgs = await syncGetTopicMessages(space.space_key, topic.topic_id, space.space_name);
+            } catch (e) {
+              emitDebug('main_sync_topic_failed', { topic_id: topic.topic_id, error: String(e?.message) });
+              // Mark as failed, continue
+              totalFailed += 1;
+              continue;
+            }
+
+            for (const msg of topicMsgs) {
+              batchBuffer.push(msg);
+              if (batchBuffer.length >= BATCH_SIZE) {
+                await flushBatch();
+              }
+            }
+          }
+        } while (pageToken);
+
+        // Flush remaining messages for this space
+        if (batchBuffer.length > 0) await flushBatch();
+      } catch (e) {
+        emitDebug('main_sync_space_failed', { space_key: space.space_key, error: String(e?.message) });
+        // AC-18: continue with next space
+      }
+    }
+
+    // Flush any remaining messages
+    if (batchBuffer.length > 0) await flushBatch();
+
+    emitDebug('main_sync_complete', { job_id: jobId, inserted: totalInserted, failed: totalFailed });
+    window.postMessage({
+      source: 'chat-agent-main',
+      type: 'sync-history-done',
+      job_id: jobId,
+    }, '*');
+  }
 
   console.log('[chat-agent:net] network hooks installed');
 })();

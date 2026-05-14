@@ -117,6 +117,44 @@ Sprint 1 + Sprint 2 所有 `/api/*` endpoints。
 
 ---
 
+## Sync History (F-012, Sprint 6)
+
+### `POST /api/extension/sync-history/start`
+- **Owner**: backend (sync_history.go)
+- **Consumer**: Chrome extension popup (popup.js)
+- **Auth**: localhost only
+- **Body**: `{ "job_id": "<UUID v4>", "space_key"?: "spaces/AAA" }`
+- **Response 201**: `{ "job_id": "...", "status": "running", "space_key": ..., "started_at": "..." }`
+- **Errors**: `400 INVALID_INPUT` (bad UUID), `409 JOB_EXISTS`
+
+### `POST /api/extension/sync-history`
+- **Owner**: backend (sync_history.go)
+- **Consumer**: Chrome extension content.js (postSyncHistoryBatch)
+- **Auth**: localhost only
+- **Body**: `{ "job_id": "<UUID>", "messages": [ SyncMessage ] }`
+  - `SyncMessage` fields: `message_id`, `space_key`, `space_name`, `thread_key`, `sender_id`, `sender_name`, `body`, `observed_at`, `mentioned`
+  - Batch limit: 1–500 messages
+- **Response 200**: `{ "inserted": N, "duplicates": N, "failed": N, "job_total_so_far": N }`
+- **Errors**: `400 INVALID_INPUT` (empty/oversized batch), `404 JOB_NOT_FOUND`
+
+### `POST /api/extension/sync-history/complete`
+- **Owner**: backend (sync_history.go)
+- **Consumer**: Chrome extension content.js (completeSyncHistory)
+- **Auth**: localhost only
+- **Body**: `{ "job_id": "<UUID>", "status": "completed" | "failed", "error_message"?: "string" }`
+- **Response 200**: `{ "ok": true }`
+- **Errors**: `404 JOB_NOT_FOUND`
+
+### `GET /api/extension/sync-history/status`
+- **Owner**: backend (sync_history.go)
+- **Consumer**: Chrome extension popup (progress polling)
+- **Auth**: localhost only
+- **Query params**: `job_id=<UUID>`
+- **Response 200**: `{ "job_id", "status", "space_key", "total_messages", "inserted_messages", "duplicate_messages", "failed_messages", "started_at", "completed_at", "error_message" }`
+- **Errors**: `404 JOB_NOT_FOUND`
+
+---
+
 ## WebSocket
 
 ### `GET /ws/ui`

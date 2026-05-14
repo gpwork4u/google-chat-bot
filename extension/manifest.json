@@ -7,7 +7,7 @@
     "default_popup": "popup.html",
     "default_title": "Chat AI Agent"
   },
-  "permissions": ["storage"],
+  "permissions": ["storage", "tabs"],
   "host_permissions": [
     "https://chat.google.com/*",
     "https://mail.google.com/*",
