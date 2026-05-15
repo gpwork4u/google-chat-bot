@@ -103,6 +103,7 @@ function FactRow({
             <div className="ml-auto flex gap-2">
               <button
                 type="button"
+                data-testid={TESTIDS.SPACE_FACTS_ROW_EDIT_BTN}
                 onClick={() => {
                   setEditContent(fact.content)
                   setEditVisibility(fact.visibility)
@@ -114,6 +115,7 @@ function FactRow({
               </button>
               <button
                 type="button"
+                data-testid={TESTIDS.SPACE_FACTS_ROW_DELETE_BTN}
                 onClick={() => setShowDeleteConfirm(true)}
                 className="text-xs text-red-400 hover:text-red-300 transition-colors"
               >
@@ -298,7 +300,7 @@ export default function SpaceFactsDetailPage() {
     } catch (err: unknown) {
       const status = (err as { status?: number })?.status
       if (status === 409) {
-        showToast(TOAST.MINING_ALREADY_RUNNING, 'success')
+        showToast(TOAST.MINING_ALREADY_RUNNING, 'info')
       } else {
         showToast(TOAST.FACT_SAVE_FAILED, 'error')
       }

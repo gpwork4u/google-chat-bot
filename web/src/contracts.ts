@@ -178,6 +178,8 @@ export const TESTIDS = {
   SPACE_FACTS_SECTION_PINNED_DECISION: 'space-facts-section-pinned-decision',
   SPACE_FACTS_SECTION_RELATION: 'space-facts-section-relation',
   SPACE_FACTS_ROW: 'space-facts-row',
+  SPACE_FACTS_ROW_EDIT_BTN: 'space-facts-row-edit-btn',
+  SPACE_FACTS_ROW_DELETE_BTN: 'space-facts-row-delete-btn',
   SPACE_FACTS_MINE_AGAIN_BTN: 'space-facts-mine-again-btn',
   SPACE_FACTS_ADD_BTN: 'space-facts-add-btn',
   SPACE_FACTS_EMPTY_STATE: 'space-facts-empty-state',

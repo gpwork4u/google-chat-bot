@@ -170,6 +170,8 @@
 | `space-facts-section-pinned-decision` | `<section>` | Pinned-decision category 區塊 |
 | `space-facts-section-relation` | `<section>` | Relation category 區塊 |
 | `space-facts-row` | `<article>` | 詳情頁每條 fact 行容器。附帶 `data-fact-id` |
+| `space-facts-row-edit-btn` | `<button>` | 進入編輯模式（在 space-facts-row 內） |
+| `space-facts-row-delete-btn` | `<button>` | 開啟刪除確認（在 space-facts-row 內） |
 | `space-facts-add-btn` | `<button>` | 手動新增 fact 按鈕 |
 | `space-facts-mine-again-btn` | `<button>` | 重新 mine 此 space 按鈕（觸發 enqueue） |
 | `space-facts-empty-state` | `<div>` | 無 facts 時的空白狀態容器 |
