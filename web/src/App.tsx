@@ -4,6 +4,8 @@ import ApprovalsPage from './pages/ApprovalsPage'
 import SentPage from './pages/SentPage'
 import SettingsPage from './pages/SettingsPage'
 import PendingPage from './pages/PendingPage'
+import SpaceFactsCandidatesPage from './pages/SpaceFactsCandidatesPage'
+import SpaceFactsDetailPage from './pages/SpaceFactsDetailPage'
 
 export default function App() {
   return (
@@ -14,6 +16,8 @@ export default function App() {
         <Route path="sent" element={<SentPage />} />
         <Route path="pending" element={<PendingPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="space-facts/candidates" element={<SpaceFactsCandidatesPage />} />
+        <Route path="space-facts/*" element={<SpaceFactsDetailPage />} />
       </Route>
     </Routes>
   )
