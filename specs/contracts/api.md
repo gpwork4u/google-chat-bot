@@ -256,3 +256,76 @@ Sprint 1 + Sprint 2 所有 `/api/*` endpoints。
 - **Consumer**: manual testing  
 - **Body**: `{ "space_key", "space_name", "thread_key", "sender_name", "body", "sender_is_me", "with_draft" }`  
 - **Response**: `200 { "ok": true, "message_id", "inserted", "draft_created" }`
+
+---
+
+## Sprint 7: Space Facts (F-014 / F-015)
+
+### `GET /api/space-facts`
+- **Owner**: backend (space_facts.go)
+- **Consumer**: SettingsPage, /space-facts/{space_key}, chat-drafts skill
+- **Query params**:
+  - `space_key` (string, exact match)
+  - `category` (enum: `product`|`my-role`|`glossary`|`pinned-decision`|`relation`)
+  - `status` (enum: `candidate`|`approved`|`rejected`, default `approved`)
+  - `visibility` (enum: `public`|`private`|`secret`)
+  - `include_secret` (bool, default false — true 才回 secret)
+- **Response**: `200 { "facts": [ SpaceFact ] }`
+- SpaceFact: `id, space_key, category, content, visibility, status, source_message_ids: int[], note, created_by, created_at, updated_at, approved_at`
+
+### `GET /api/space-facts/candidates`
+- 等同 `GET /api/space-facts?status=candidate`，新增 `limit` (default 50, max 200)
+- **Consumer**: /space-facts/candidates 頁
+
+### `POST /api/space-facts`
+- **Body**: `{ space_key, category, content, visibility?, source_message_ids?, note?, created_by? }`
+- `created_by=mining-skill` → status=candidate；`created_by=manual` → status=approved + approved_at=NOW()
+- **Response**: `201 SpaceFact`
+- **Errors**: `400 INVALID_INPUT` / `404 SPACE_NOT_FOUND`
+
+### `PATCH /api/space-facts/{id}`
+- **Body (partial)**: `content?, visibility?, status?, note?, category?`
+- 當 status 從 candidate → approved 時 set approved_at=NOW()
+- **Response**: `200 SpaceFact`
+- **Errors**: `404 NOT_FOUND`
+
+### `DELETE /api/space-facts/{id}`
+- Hard delete
+- **Response**: `200 { "ok": true }`
+
+### `POST /api/space-facts/{id}/approve`
+- 語法糖 = `PATCH {status: "approved"}`
+- **Response**: `200 SpaceFact`
+
+### `POST /api/space-facts/{id}/reject`
+- 語法糖 = `PATCH {status: "rejected"}`
+- **Response**: `200 SpaceFact`
+
+### `POST /api/space-facts/mining-queue`
+- **Body**: `{ "space_key": "spaces/AAA" }`
+- 新增 / reset 為 pending；若已 running → 409
+- **Response**: `201 MiningJob` (新建) 或 `200 MiningJob` (reset)
+- **Errors**: `409 JOB_RUNNING`
+- MiningJob: `space_key, status, last_mined_message_id, last_mined_at, candidates_generated, error_message, created_at, updated_at`
+
+### `GET /api/space-facts/mining-queue`
+- **Query**: `status` (default `pending`), `limit` (default 50)
+- **Response**: `200 { "jobs": [ MiningJob ] }`
+
+### `PATCH /api/space-facts/mining-queue/{space_key}`
+- **Body (partial)**: `status?, last_mined_message_id?, candidates_generated?, error_message?`
+- skill 用此 endpoint 標 running / completed / failed
+- **Response**: `200 MiningJob`
+- **Errors**: `404 NOT_FOUND`
+
+### `GET /api/messages`
+- **Owner**: backend (messages.go — 新增或擴充)
+- **Consumer**: space-facts-mining skill (拉 space 歷史)、F-015 source toggle (id_in 批次)
+- **Query params**:
+  - `space_key` (string)
+  - `limit` (int, 1..500, default 50)
+  - `before_id` (int) — 分頁，回 id < before_id
+  - `since` (RFC3339) — observed_at >= since
+  - `id_in` (comma-separated ints) — 批次 lookup，與 space_key 互斥
+- **Response**: `200 { "messages": [ Message ], "next_before_id": int|null }`
+- Message: `id, message_id, space_key, thread_key, sender_id, sender_name, body, observed_at, mentioned, skipped_at`
