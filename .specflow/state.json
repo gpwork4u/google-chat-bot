@@ -5,12 +5,12 @@
     "issue": "https://github.com/gpwork4u/google-chat-bot/issues/68",
     "milestone": "Sprint 5: CR-001 D-skip mark"
   },
-  "phase": "phase-6-close",
-  "last_action": "verifier PASS（Sprint 5 三維度通過，1 WARNING：api.md 未補 F-011 endpoints）",
-  "next_action": "確認後關閉 milestone #5 + #68，決定 release 或進下一 sprint",
+  "phase": "phase-7-next",
+  "last_action": "主 worktree race condition 救援；rescue/sprint-6-wip 備份；重啟 backend+frontend 完成 #84/#85/#87",
+  "next_action": "Sprint 6 完成；待決定 release v0.6.0 或進 Sprint 7",
   "in_flight_agents": [],
   "open_questions": [],
-  "updated_at": "2026-05-14T13:19:19Z",
+  "updated_at": "2026-05-15T00:11:10Z",
   "lane_closed": {
     "feature": true,
     "design": true,
