@@ -14,6 +14,35 @@ package httpapi
 
 import "time"
 
+// SpaceFact is one row returned by GET /api/space-facts or related endpoints.
+type SpaceFact struct {
+	ID               int64     `json:"id"`
+	SpaceKey         string    `json:"space_key"`
+	Category         string    `json:"category"`          // product | my-role | glossary | pinned-decision | relation
+	Content          string    `json:"content"`
+	Visibility       string    `json:"visibility"`        // public | private | secret
+	Status           string    `json:"status"`            // candidate | approved | rejected
+	SourceMessageIDs []int64   `json:"source_message_ids"`
+	Note             string    `json:"note"`
+	CreatedBy        string    `json:"created_by"`        // mining-skill | manual
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	ApprovedAt       *time.Time `json:"approved_at"`
+}
+
+// MiningJob is one row in the mining queue returned by GET /api/space-facts/mining-queue.
+type MiningJob struct {
+	ID                  int64      `json:"id"`
+	SpaceKey            string     `json:"space_key"`
+	Status              string     `json:"status"`                // pending | running | completed | failed
+	LastMinedMessageID  *int64     `json:"last_mined_message_id"`
+	LastMinedAt         *time.Time `json:"last_mined_at"`
+	CandidatesGenerated int        `json:"candidates_generated"`
+	ErrorMessage        *string    `json:"error_message"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+}
+
 // Settings is the global per-user configuration returned by GET /api/settings
 // and emitted in WebSocket settings_updated events.
 type Settings struct {
