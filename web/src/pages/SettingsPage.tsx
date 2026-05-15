@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import useSWR from 'swr'
 import { api, fetcher } from '../api/client'
 import { useSettings } from '../hooks/useSettings'
 import { useToast } from '../components/Toast'
 import SafetySection from '../components/SafetySection'
-import { TESTIDS, TOAST, LABELS } from '../contracts'
+import { TESTIDS, TOAST, LABELS, API_PATHS } from '../contracts'
+import type { SpaceFactsResponse } from '../types/spaceFacts'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -583,11 +584,23 @@ function ProfileFactGroup({ visibility, facts, onEdit, onDelete, onAdd }: Profil
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const navigate = useNavigate()
   const { settings, isLoading: settingsLoading, error: settingsError, mutate: mutateSettings } = useSettings()
   const { data: spacesData, isLoading: spacesLoading, error: spacesError, mutate: mutateSpaces } = useSWR<SpacesResponse>('/api/spaces', fetcher)
   const { data: profileData, isLoading: profileLoading, error: profileError, mutate: mutateProfile } = useSWR<ProfileResponse>(
     '/api/claude/profile?include_secret=1',
     fetcher,
+  )
+  // Space Facts: candidates count + per-space approved counts
+  const { data: candidatesData } = useSWR<SpaceFactsResponse>(
+    API_PATHS.SPACE_FACTS_CANDIDATES,
+    fetcher,
+    { revalidateOnFocus: false },
+  )
+  const { data: approvedFactsData } = useSWR<SpaceFactsResponse>(
+    `${API_PATHS.SPACE_FACTS}?status=approved`,
+    fetcher,
+    { revalidateOnFocus: false },
   )
   const { showToast } = useToast()
 
@@ -797,6 +810,30 @@ export default function SettingsPage() {
   const privateFacts = facts.filter(f => f.visibility === 'private')
   const secretFacts = facts.filter(f => f.visibility === 'secret')
 
+  // Space Facts derived data
+  const candidateFacts = candidatesData?.facts ?? []
+  const candidatesCount = candidateFacts.length
+
+  // Group approved facts by space_key
+  const approvedFacts = approvedFactsData?.facts ?? []
+  const approvedBySpace = approvedFacts.reduce<Record<string, number>>((acc, f) => {
+    acc[f.space_key] = (acc[f.space_key] ?? 0) + 1
+    return acc
+  }, {})
+
+  // Distinct spaces from both candidates and approved
+  const spaceKeys = Array.from(
+    new Set([
+      ...candidateFacts.map(f => f.space_key),
+      ...approvedFacts.map(f => f.space_key),
+    ]),
+  )
+
+  const getSpaceDisplayName = (spaceKey: string) => {
+    const space = spacesData?.spaces.find(s => s.space_key === spaceKey)
+    return space?.space_name ?? spaceKey
+  }
+
   // Unused ref (kept for potential future use)
   void freshnessRef
 
@@ -974,6 +1011,67 @@ export default function SettingsPage() {
                 onAdd={handleProfileAdd}
               />
             ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Space Facts Section (F-015) ── */}
+      <section data-testid={TESTIDS.SETTINGS_SPACE_FACTS_SECTION} aria-label="Space 事實" className="space-y-0">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+            {LABELS.SPACE_FACTS_SECTION}
+          </h2>
+          <Link
+            to="/space-facts/candidates"
+            className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+          >
+            <span
+              data-testid={TESTIDS.SPACE_FACTS_PENDING_BADGE}
+              className="px-1.5 py-0.5 rounded-full bg-amber-900 text-amber-300 font-medium"
+            >
+              {candidatesCount}
+            </span>
+            <span>{LABELS.PENDING_CANDIDATES}</span>
+          </Link>
+        </div>
+
+        {spaceKeys.length === 0 ? (
+          <div className="rounded-md border border-gray-700 bg-gray-900 px-4 py-8 text-center text-sm text-gray-500">
+            尚無 space facts
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {spaceKeys.map(spaceKey => {
+              const approvedCount = approvedBySpace[spaceKey] ?? 0
+              const displayName = getSpaceDisplayName(spaceKey)
+              return (
+                <article
+                  key={spaceKey}
+                  data-testid={TESTIDS.SPACE_FACTS_SPACE_CARD}
+                  data-space-key={spaceKey}
+                  onClick={() => {
+                    void navigate(`/space-facts/${encodeURIComponent(spaceKey)}`)
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      void navigate(`/space-facts/${encodeURIComponent(spaceKey)}`)
+                    }
+                  }}
+                  className="flex items-center justify-between px-4 py-3 rounded-md border border-gray-700 bg-gray-900 cursor-pointer hover:border-indigo-700 hover:bg-gray-800/50 transition-colors"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-gray-100">{displayName}</p>
+                    <p className="text-xs text-gray-500 font-mono mt-0.5">{spaceKey}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-sm font-semibold text-gray-200">{approvedCount}</span>
+                    <p className="text-xs text-gray-500">approved facts</p>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         )}
       </section>

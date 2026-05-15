@@ -222,6 +222,20 @@ export const API_PATHS = {
   SYNC_HISTORY_COMPLETE: '/api/extension/sync-history/complete',
   SYNC_HISTORY_STATUS: '/api/extension/sync-history/status',
 
+  // Space Facts (F-014/F-015, Sprint 7)
+  SPACE_FACTS: '/api/space-facts',
+  SPACE_FACTS_CANDIDATES: '/api/space-facts/candidates',
+  SPACE_FACTS_ITEM: (id: number | string) => `/api/space-facts/${id}`,
+  SPACE_FACT_APPROVE: (id: number | string) => `/api/space-facts/${id}/approve`,
+  SPACE_FACT_REJECT: (id: number | string) => `/api/space-facts/${id}/reject`,
+  SPACE_FACT_PATCH: (id: number | string) => `/api/space-facts/${id}`,
+  SPACE_FACT_DELETE: (id: number | string) => `/api/space-facts/${id}`,
+  SPACE_FACTS_APPROVE: (id: number | string) => `/api/space-facts/${id}/approve`,
+  SPACE_FACTS_REJECT: (id: number | string) => `/api/space-facts/${id}/reject`,
+  SPACE_FACTS_MINING_QUEUE: '/api/space-facts/mining-queue',
+  SPACE_FACTS_MINING_QUEUE_ITEM: (spaceKey: string) => `/api/space-facts/mining-queue/${encodeURIComponent(spaceKey)}`,
+  MESSAGES: '/api/messages',
+
   // WebSocket
   WS_UI: '/ws/ui',
 
@@ -230,16 +244,6 @@ export const API_PATHS = {
   DEBUG_INJECT_WS_EVENT: '/api/debug/inject-ws-event',
   DEBUG_SEED_DRAFTS: '/api/debug/seed-drafts',
   DEBUG_SIMULATE_MESSAGE: '/debug/simulate_message',
-
-  // Space Facts (F-014 / F-015, Sprint 7)
-  SPACE_FACTS: '/api/space-facts',
-  SPACE_FACTS_CANDIDATES: '/api/space-facts/candidates',
-  SPACE_FACTS_ITEM: (id: number | string) => `/api/space-facts/${id}`,
-  SPACE_FACTS_APPROVE: (id: number | string) => `/api/space-facts/${id}/approve`,
-  SPACE_FACTS_REJECT: (id: number | string) => `/api/space-facts/${id}/reject`,
-  SPACE_FACTS_MINING_QUEUE: '/api/space-facts/mining-queue',
-  SPACE_FACTS_MINING_QUEUE_ITEM: (spaceKey: string) => `/api/space-facts/mining-queue/${encodeURIComponent(spaceKey)}`,
-  MESSAGES: '/api/messages',
 } as const
 
 // ─── Toast Text ──────────────────────────────────────────────────────────────
@@ -290,6 +294,9 @@ export const TOAST = {
   FACT_CREATED: 'Fact 已新增',
   FACT_SAVE_FAILED: '儲存失敗，請重試',
   MINING_ENQUEUED: '已加入 mining queue',
+  MINING_ALREADY_RUNNING: 'Mining 已在進行中',
+  BATCH_APPROVE_DONE: (n: number) => `已核准 ${n} 條 fact`,
+  BATCH_REJECT_DONE: (n: number) => `已拒絕 ${n} 條 fact`,
 } as const
 
 export type ToastText = (typeof TOAST)[keyof typeof TOAST]
@@ -330,6 +337,29 @@ export const LABELS = {
   BUTTON_SKIP: 'Skip',
   BUTTON_UNSKIP: 'Unskip',
   MENTIONED_FILTER_LABEL: '只看 @我',
+
+  // Sprint 7: Space Facts (F-015) labels
+  SPACE_FACTS_SECTION: 'Space 事實',
+  PENDING_CANDIDATES: '待審核 candidate',
+  CATEGORY_PRODUCT: '產品',
+  CATEGORY_MY_ROLE: '我的角色',
+  CATEGORY_GLOSSARY: '術語',
+  CATEGORY_PINNED_DECISION: '決議',
+  CATEGORY_RELATION: '人物',
+  VISIBILITY_PUBLIC_SF: '公開',
+  VISIBILITY_PRIVATE_SF: 'private',
+  VISIBILITY_SECRET_SF: 'secret',
+  BUTTON_APPROVE: '核准',
+  BUTTON_REJECT: '拒絕',
+  BUTTON_EDIT: '編輯',
+  BUTTON_SAVE: '儲存',
+  BUTTON_CANCEL: '取消',
+  BUTTON_DELETE: '刪除',
+  BUTTON_MINE_AGAIN: '重新 mine 此 space',
+  BUTTON_ADD_FACT: '新增 fact',
+  BUTTON_BATCH_APPROVE: 'Approve all in space',
+  BUTTON_BATCH_REJECT: 'Reject all in space',
+  BUTTON_CONFIRM: '確定',
 
   // SettingsPage Safety Rails (F-008, Sprint 4)
   SAFETY_SECTION_TITLE: '安全護欄',
