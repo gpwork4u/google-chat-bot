@@ -152,6 +152,35 @@ export const TESTIDS = {
   FACT_KEY: 'fact-key',
   FACT_VALUE: 'fact-value',
   FACT_VISIBILITY: 'fact-visibility',
+
+  // --- Space Facts (F-014 / F-015, Sprint 7) ---
+  SETTINGS_SPACE_FACTS_SECTION: 'settings-space-facts-section',
+  SPACE_FACTS_PENDING_BADGE: 'space-facts-pending-badge',
+  SPACE_FACTS_SPACE_CARD: 'space-facts-space-card',
+  SPACE_FACTS_CANDIDATES_PAGE: 'space-facts-candidates-page',
+  CANDIDATE_FACT_ROW: 'candidate-fact-row',
+  CANDIDATE_FACT_CONTENT: 'candidate-fact-content',
+  CANDIDATE_FACT_CATEGORY: 'candidate-fact-category',
+  CANDIDATE_FACT_VISIBILITY_SELECT: 'candidate-fact-visibility-select',
+  CANDIDATE_FACT_SOURCE_TOGGLE: 'candidate-fact-source-toggle',
+  CANDIDATE_FACT_SOURCE_LIST: 'candidate-fact-source-list',
+  CANDIDATE_FACT_APPROVE_BTN: 'candidate-fact-approve-btn',
+  CANDIDATE_FACT_EDIT_BTN: 'candidate-fact-edit-btn',
+  CANDIDATE_FACT_REJECT_BTN: 'candidate-fact-reject-btn',
+  CANDIDATE_FACT_SAVE_BTN: 'candidate-fact-save-btn',
+  CANDIDATE_FACT_CANCEL_BTN: 'candidate-fact-cancel-btn',
+  SPACE_FACTS_BATCH_APPROVE: 'space-facts-batch-approve',
+  SPACE_FACTS_BATCH_REJECT: 'space-facts-batch-reject',
+  SPACE_FACTS_DETAIL_PAGE: 'space-facts-detail-page',
+  SPACE_FACTS_SECTION_PRODUCT: 'space-facts-section-product',
+  SPACE_FACTS_SECTION_MY_ROLE: 'space-facts-section-my-role',
+  SPACE_FACTS_SECTION_GLOSSARY: 'space-facts-section-glossary',
+  SPACE_FACTS_SECTION_PINNED_DECISION: 'space-facts-section-pinned-decision',
+  SPACE_FACTS_SECTION_RELATION: 'space-facts-section-relation',
+  SPACE_FACTS_ROW: 'space-facts-row',
+  SPACE_FACTS_MINE_AGAIN_BTN: 'space-facts-mine-again-btn',
+  SPACE_FACTS_ADD_BTN: 'space-facts-add-btn',
+  SPACE_FACTS_EMPTY_STATE: 'space-facts-empty-state',
 } as const
 
 export type TestId = (typeof TESTIDS)[keyof typeof TESTIDS]
@@ -201,6 +230,16 @@ export const API_PATHS = {
   DEBUG_INJECT_WS_EVENT: '/api/debug/inject-ws-event',
   DEBUG_SEED_DRAFTS: '/api/debug/seed-drafts',
   DEBUG_SIMULATE_MESSAGE: '/debug/simulate_message',
+
+  // Space Facts (F-014 / F-015, Sprint 7)
+  SPACE_FACTS: '/api/space-facts',
+  SPACE_FACTS_CANDIDATES: '/api/space-facts/candidates',
+  SPACE_FACTS_ITEM: (id: number | string) => `/api/space-facts/${id}`,
+  SPACE_FACTS_APPROVE: (id: number | string) => `/api/space-facts/${id}/approve`,
+  SPACE_FACTS_REJECT: (id: number | string) => `/api/space-facts/${id}/reject`,
+  SPACE_FACTS_MINING_QUEUE: '/api/space-facts/mining-queue',
+  SPACE_FACTS_MINING_QUEUE_ITEM: (spaceKey: string) => `/api/space-facts/mining-queue/${encodeURIComponent(spaceKey)}`,
+  MESSAGES: '/api/messages',
 } as const
 
 // ─── Toast Text ──────────────────────────────────────────────────────────────
@@ -242,6 +281,15 @@ export const TOAST = {
   // Extension popup — Sync history (F-012/F-004)
   SYNC_DONE: '同步完成',
   SYNC_FAILED: '同步失敗，請重試',
+
+  // Space Facts (F-015, Sprint 7)
+  FACT_APPROVED: 'Fact 已核准',
+  FACT_REJECTED: 'Fact 已拒絕',
+  FACT_EDITED: 'Fact 已編輯',
+  FACT_DELETED: 'Fact 已刪除',
+  FACT_CREATED: 'Fact 已新增',
+  FACT_SAVE_FAILED: '儲存失敗，請重試',
+  MINING_ENQUEUED: '已加入 mining queue',
 } as const
 
 export type ToastText = (typeof TOAST)[keyof typeof TOAST]
