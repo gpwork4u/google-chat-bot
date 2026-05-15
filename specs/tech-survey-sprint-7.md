@@ -283,13 +283,13 @@ CR-002 §4.1 寫 `0020_space_facts` / §4.2 `0021_space_history_sync_jobs` / §4
 - `GET /api/messages?space_key=...&limit=...&before_id=...&since=...&id_in=1,2,3`
 
 ### `specs/contracts/dom.md` 新增 testids
-（見 F-015 §DOM Contract — 共 24 個）
+（見 F-015 §DOM Contract — 共 27 個）
 
 ### `specs/contracts/ux-text.md` 新增
 （見 F-015 §UX Text Contract — 共 ~20 條 TOAST + LABEL + BUTTON）
 
 ### `web/src/contracts.ts` 新增 const
-- `TESTIDS.SPACE_FACTS_*`（24 個）
+- `TESTIDS.SPACE_FACTS_*`（27 個）
 - `API_PATHS.SPACE_FACTS_*`（11 個 endpoint paths）
 - `TOAST.FACT_*` / `LABEL.*` / `BUTTON.*`（見 F-015 spec）
 

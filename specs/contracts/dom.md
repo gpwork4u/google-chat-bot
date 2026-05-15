@@ -141,7 +141,9 @@
 | `candidate-fact-source-toggle` | `<button>` | 展開 / 折疊 source messages 切換 |
 | `candidate-fact-source-list` | `<div>` | 展開後的 source messages 列表容器 |
 | `candidate-fact-visibility-select` | `<select>` | Visibility 下拉選單（public / private / secret） |
+| `candidate-fact-category` | `<span>` | Fact 的 category badge |
 | `space-facts-batch-approve` | `<button>` | 以 space 為單位 batch approve 所有 candidates |
+| `space-facts-batch-reject` | `<button>` | 以 space 為單位 batch reject 所有 candidates |
 
 **candidate-fact-row 特殊屬性**：
 - `data-fact-id`: fact ID（數字，供 QA selector 定位）
