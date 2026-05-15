@@ -123,6 +123,94 @@ Response：
 
 如果 `pending` 是空陣列：回報「沒有待處理訊息」並結束。
 
+### 1.5 拉 space facts（每 space 第一次遇到時拉，後續 cache）
+
+對 pending 列表中的每個 **unique `space_key`**，**第一次**遇到時拉該 space 的 approved facts 並 cache 在本輪 session 記憶中：
+
+```bash
+SPACE_KEY="<from pending msg.space_key>"
+curl -s "http://localhost:8080/api/space-facts?space_key=${SPACE_KEY}&status=approved"
+```
+
+Response 結構（F-014 contract）：
+
+```json
+{
+  "facts": [
+    {
+      "id": 1,
+      "space_key": "spaces/AAA",
+      "category": "product",
+      "content": "此 space 主要討論 fedflow K8s controller，重點在 reconciler queue",
+      "visibility": "private",
+      "status": "approved",
+      "source_message_ids": [123, 124],
+      "note": "",
+      "created_by": "mining-skill",
+      "created_at": "...",
+      "updated_at": "...",
+      "approved_at": "..."
+    }
+  ]
+}
+```
+
+**Cache 策略**：本輪 `/loop` session 第一次遇到某 `space_key` 時拉，後續同 space 的 pending 訊息直接重用 cache（不重打 API）。Cache 不跨 session。
+
+**API 失敗處理**：若 API 回 500 / timeout，log warning 並繼續處理 message（prompt 中略過 facts section，不阻塞）：
+
+```
+warn: GET /api/space-facts?space_key=X failed — skipping space facts injection
+```
+
+**注入 system prompt**：若 `facts` 非空，在處理該 space 的訊息時，把 facts 以下列格式注入 system prompt（在使用者個人 facts 段之後、user message 之前）：
+
+```
+## Space context: <space_name> (key=<space_key>)
+
+以下為此 space 的長期記憶（由 space-facts-mining skill 萃取並由使用者 approve）：
+
+### 產品 (product)
+- 此 space 主要討論 fedflow K8s controller，重點在 reconciler queue
+
+### 我的角色 (my-role)
+- 我在此 space 是 contributor，主要負責 PR review
+
+### 術語 (glossary)
+- NFR = Non-Functional Requirement，指效能 / 可靠度需求
+
+### 決議 (pinned-decision)
+- Q2 決定重點追 NFR 指標：p99 latency + throughput
+
+### 人物 (relation)
+- Alice: PM，負責 roadmap 決策
+- Bob: SRE lead，on-call escalation 找他
+
+> 注意：visibility=private 的 fact 不可主動向第三方提及。
+```
+
+**注入規則**：
+
+- 空類別（該類沒有 fact）→ 不顯示該 sub-section（`### 產品` 等）
+- 整個 facts 為空 → 不出現「## Space context」整段，prompt 照常，不報錯
+- `visibility=public`：可自由引用
+- `visibility=private`：注入但 prompt 末加「> 注意：visibility=private 的 fact 不可主動向第三方提及。」
+- `visibility=secret`：永遠不會出現（backend 預設不回 secret，skill 端不需另外過濾）
+
+**每個 category 的排列順序**（依重要性）：product → my-role → glossary → pinned-decision → relation。只列出有 fact 的類別。
+
+**Manual Smoke Test**：
+
+1. 在某 space 建 2 條 approved facts（一條 product、一條 my-role）：
+   ```bash
+   curl -sS -X POST "http://localhost:8080/api/space-facts" \
+     -H 'Content-Type: application/json' \
+     -d '{"space_key":"spaces/AAA","category":"product","content":"此 space 主要討論 fedflow K8s controller","visibility":"private","created_by":"manual"}'
+   ```
+2. 觸發一條 pending message in spaces/AAA
+3. 跑 chat-drafts skill 一輪
+4. 觀察 skill log：應看到「拉 space facts for spaces/AAA」且 draft 內容應隱含 fact context（如回覆時使用正確術語）
+
 ### 2. 先拉完整前後文（強制，不能跳）
 
 **每則 pending message 都必須先拉 context 才能進入 step 3**。backend 有專門的 API：
