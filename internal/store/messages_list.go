@@ -156,18 +156,3 @@ WHERE m.user_id = $1 AND m.id = ANY($2::bigint[])`
 	return scanMessagesForAPI(rows)
 }
 
-// itoa converts a positive integer to its decimal string representation.
-// Used internally for building parameterized queries without importing strconv.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	buf := [20]byte{}
-	pos := len(buf)
-	for n > 0 {
-		pos--
-		buf[pos] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[pos:])
-}
