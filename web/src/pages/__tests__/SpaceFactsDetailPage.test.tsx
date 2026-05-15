@@ -157,7 +157,7 @@ describe('SpaceFactsDetailPage — mine again', () => {
     fireEvent.click(screen.getByTestId(TESTIDS.SPACE_FACTS_MINE_AGAIN_BTN))
 
     await waitFor(() => {
-      expect(showToastMock).toHaveBeenCalledWith('Mining 已在進行中', 'success')
+      expect(showToastMock).toHaveBeenCalledWith('Mining 已在進行中', 'info')
     })
   })
 })
