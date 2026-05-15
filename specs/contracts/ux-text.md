@@ -81,3 +81,50 @@
 | `public` | `公開` |
 | `private` | `私人` |
 | `secret` | `機密` |
+
+---
+
+## Sprint 7: Space Facts (F-015)
+
+### Toast
+
+| key | 文字 | 類型 |
+|-----|------|------|
+| `TOAST.factApproved` | `Fact 已核准` | success |
+| `TOAST.factRejected` | `Fact 已拒絕` | success |
+| `TOAST.factEdited` | `Fact 已編輯` | success |
+| `TOAST.factDeleted` | `Fact 已刪除` | success |
+| `TOAST.factCreated` | `Fact 已新增` | success |
+| `TOAST.factSaveFailed` | `儲存失敗，請重試` | error |
+| `TOAST.miningEnqueued` | `已加入 mining queue` | success |
+| `TOAST.miningAlreadyRunning` | `Mining 已在進行中` | info |
+| `TOAST.batchApproveDone` | `已核准 {N} 條 fact` | success (N = 實際數量) |
+| `TOAST.batchRejectDone` | `已拒絕 {N} 條 fact` | success |
+
+### Label
+
+| key | 文字 |
+|-----|------|
+| `LABEL.spaceFactsSection` | `Space 事實` |
+| `LABEL.pendingCandidates` | `待審核 candidate` |
+| `LABEL.categoryProduct` | `產品` |
+| `LABEL.categoryMyRole` | `我的角色` |
+| `LABEL.categoryGlossary` | `術語` |
+| `LABEL.categoryPinnedDecision` | `決議` |
+| `LABEL.categoryRelation` | `人物` |
+
+### Button
+
+| key | 文字 |
+|-----|------|
+| `BUTTON.approve` | `核准` |
+| `BUTTON.reject` | `拒絕` |
+| `BUTTON.edit` | `編輯` |
+| `BUTTON.save` | `儲存` |
+| `BUTTON.cancel` | `取消` |
+| `BUTTON.delete` | `刪除` |
+| `BUTTON.mineAgain` | `重新 mine 此 space` |
+| `BUTTON.addFact` | `新增 fact` |
+| `BUTTON.batchApprove` | `Approve all in space` |
+| `BUTTON.batchReject` | `Reject all in space` |
+| `BUTTON.confirm` | `確定` |

@@ -121,3 +121,55 @@
 | `sync-history-current` | `<button>` | 同步此 space 歷史（popup.html，僅 chat.google.com） |
 | `sync-progress` | `<div>` | 同步進度顯示區（popup.html） |
 | `settings-pending-link` | `<a>` | Settings 頁「Pending 訊息檢視」連結 |
+
+---
+
+## Space Facts (F-015)
+
+### /space-facts/candidates 頁
+
+| testid | 元素 | 用途 |
+|--------|------|------|
+| `space-facts-candidates-page` | `<div>` | Candidates 頁根容器 |
+| `candidate-fact-row` | `<article>` | 每筆 candidate fact 行容器。附帶 `data-fact-id` |
+| `candidate-fact-approve-btn` | `<button>` | Approve 此 fact 按鈕 |
+| `candidate-fact-reject-btn` | `<button>` | Reject 此 fact 按鈕（觸發確認 dialog） |
+| `candidate-fact-edit-btn` | `<button>` | 進入編輯模式按鈕 |
+| `candidate-fact-content` | `<textarea>` | 編輯模式下的 content 輸入框 |
+| `candidate-fact-save-btn` | `<button>` | 編輯模式儲存按鈕 |
+| `candidate-fact-cancel-btn` | `<button>` | 編輯模式取消按鈕（還原原內容） |
+| `candidate-fact-source-toggle` | `<button>` | 展開 / 折疊 source messages 切換 |
+| `candidate-fact-source-list` | `<div>` | 展開後的 source messages 列表容器 |
+| `candidate-fact-visibility-select` | `<select>` | Visibility 下拉選單（public / private / secret） |
+| `candidate-fact-category` | `<span>` | Fact 的 category badge |
+| `space-facts-batch-approve` | `<button>` | 以 space 為單位 batch approve 所有 candidates |
+| `space-facts-batch-reject` | `<button>` | 以 space 為單位 batch reject 所有 candidates |
+
+**candidate-fact-row 特殊屬性**：
+- `data-fact-id`: fact ID（數字，供 QA selector 定位）
+
+### SettingsPage Space Facts section
+
+| testid | 元素 | 用途 |
+|--------|------|------|
+| `settings-space-facts-section` | `<section>` | SettingsPage 中的 Space Facts 區塊 |
+| `space-facts-pending-badge` | `<span>` | 待審核 candidate 總數 badge |
+| `space-facts-space-card` | `<div role="button">` | 各 space 的摘要卡片（點擊進入詳情）。附帶 `data-space-key` |
+
+**space-facts-space-card 特殊屬性**：
+- `data-space-key`: URL-encoded space key（例 `spaces%2FAAA`）
+
+### /space-facts/{space_key} 詳情頁
+
+| testid | 元素 | 用途 |
+|--------|------|------|
+| `space-facts-detail-page` | `<div>` | 詳情頁根容器 |
+| `space-facts-section-product` | `<section>` | Product category 區塊 |
+| `space-facts-section-my-role` | `<section>` | My-role category 區塊 |
+| `space-facts-section-glossary` | `<section>` | Glossary category 區塊 |
+| `space-facts-section-pinned-decision` | `<section>` | Pinned-decision category 區塊 |
+| `space-facts-section-relation` | `<section>` | Relation category 區塊 |
+| `space-facts-row` | `<article>` | 詳情頁每條 fact 行容器。附帶 `data-fact-id` |
+| `space-facts-add-btn` | `<button>` | 手動新增 fact 按鈕 |
+| `space-facts-mine-again-btn` | `<button>` | 重新 mine 此 space 按鈕（觸發 enqueue） |
+| `space-facts-empty-state` | `<div>` | 無 facts 時的空白狀態容器 |
