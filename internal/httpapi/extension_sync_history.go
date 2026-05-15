@@ -198,6 +198,7 @@ func handleSyncHistoryBatch(w http.ResponseWriter, r *http.Request, db *store.DB
 			SenderIsMe: false,
 			Body:       m.Body,
 			ObservedAt: observedAt,
+			Mentioned:  m.Mentioned,
 		}
 
 		wasInserted, insertErr := db.InsertOrGetMessage(ctx, msg)
