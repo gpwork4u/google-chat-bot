@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/jackc/pgx/v5"
 )
 
 type ChatMember struct {
@@ -39,7 +38,7 @@ func (db *DB) LookupChatMember(ctx context.Context, userID int64, memberID strin
 	const q = `SELECT member_id, display_name, email FROM chat_members WHERE user_id=$1 AND member_id=$2`
 	var m ChatMember
 	err := db.QueryRow(ctx, q, userID, memberID).Scan(&m.MemberID, &m.DisplayName, &m.Email)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

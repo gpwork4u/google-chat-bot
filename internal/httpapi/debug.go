@@ -48,12 +48,43 @@ func handleRawEventsPeek(w http.ResponseWriter, r *http.Request, db *store.DB) {
 	if n, err := parseInt(q.Get("max_bytes")); err == nil && n >= 256 && n <= 262144 {
 		maxBytes = n
 	}
-	rows, err := db.PeekRawEvents(r.Context(), urlLike, limit, maxBytes)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
+	rows := peekRawEventsMem(urlLike, limit, maxBytes)
 	writeJSON(w, http.StatusOK, map[string]any{"count": len(rows), "rows": rows})
+}
+
+// peekRawEventsMem mirrors store.PeekRawEvents but reads from the in-memory
+// store. Returns rows shaped like store.PeekRawEventRow so callers / clients
+// don't notice the swap.
+func peekRawEventsMem(urlLike string, limit, maxBytes int) []map[string]any {
+	s := getRawEventsStore()
+	if s == nil {
+		return nil
+	}
+	events := s.PeekNewest(urlLike, limit)
+	out := make([]map[string]any, 0, len(events))
+	for _, ev := range events {
+		var probe struct {
+			RespText string `json:"respText,omitempty"`
+			ReqBody  string `json:"reqBody,omitempty"`
+		}
+		_ = json.Unmarshal(ev.Payload, &probe)
+		out = append(out, map[string]any{
+			"id":        ev.ID,
+			"kind":      ev.Kind,
+			"url":       ev.URL,
+			"resp_text": truncateBytes(probe.RespText, maxBytes),
+			"req_body":  truncateBytes(probe.ReqBody, maxBytes),
+			"payload":   ev.Payload,
+		})
+	}
+	return out
+}
+
+func truncateBytes(s string, n int) string {
+	if n <= 0 || len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 func contains(s, sub string) bool {

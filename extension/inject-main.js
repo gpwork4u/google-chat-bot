@@ -3,7 +3,7 @@
 // Hooks fetch, XMLHttpRequest, and WebSocket so we can observe the raw wire
 // traffic between Chat's frontend SPA and Google's backend. Events are
 // dispatched out through CustomEvents to the isolated-world content script,
-// which forwards them to localhost:8080/api/ext/raw for offline analysis.
+// which forwards them to localhost:8090/api/ext/raw for offline analysis.
 
 (function () {
   const URL_FILTERS = [
@@ -20,6 +20,7 @@
   const MAX_BODY = 500000;
   const CREATE_TOPIC_PATH = /\/api\/create_topic(?:\?|$)/;
   const CREATE_MESSAGE_PATH = /\/api\/create_message(?:\?|$)/;
+  const UPDATE_REACTION_PATH = /\/api\/update_reaction(?:\?|$)/;
   const API_COUNTER_RE = /[?&]c=(\d+)/;
   const DEFAULT_PREFS = [
     null, null, null, null, 2, 2, null, 2, 2, 2, 2, null, null, null, null, 2, 2, 2, 2, 2,
@@ -35,6 +36,31 @@
     requestHeaders: null,
     lastCreateTopicTemplate: null,
     lastCreateMessageTemplate: null,
+    // Map of "<action>|<emoji>" → captured update_reaction payload, where
+    // action is "add" or "remove". add and remove have noticeably different
+    // payload shapes (add carries the user-id / local-id / timestamp at
+    // [1][1][4/5/7]; remove zeros them out) so we cache them separately and
+    // pick the matching one at replay time.
+    reactionTemplatesByKey: Object.create(null),
+    // Per-emoji cache of the custom-emoji unique id at payload[1][1][8].
+    reactionUniqueIDByEmoji: Object.create(null),
+    // Per-emoji cache of the reaction-record UUID at payload[1][1][0]. This
+    // is *not* per-request — it identifies the (message, emoji) reaction row
+    // on the server and is stable across add/remove toggles, so we must
+    // replay the exact value the server already knows.
+    reactionUUIDByEmoji: Object.create(null),
+    // Emoji catalog built from /api/get_frecent_emojis_v2 (called at Chat
+    // startup). Keys: shortcode (":peepoclap:"), unicode char ("👍"), or
+    // unicode alias (":thumbs-up:"). Value carries everything we need to
+    // synthesize an update_reaction payload without needing a capture.
+    //   custom : { type:'custom', uuid, shortcode, userId, localId, timestamp, blob }
+    //   unicode: { type:'unicode', unicode, aliases }
+    emojiCatalog: Object.create(null),
+    // x-goog-ext-353267353-bin — Chat SPA attaches this to mutation POSTs.
+    // We capture it from any observed /api/ POST so replay can re-send it.
+    googExtBin: '',
+    // x-client-data Chrome fingerprint header.
+    xClientData: '',
     // Map of spaceID → captured spaceRef structure. We key by spaceID so that
     // sends targeting a specific space never accidentally reuse a ref from a
     // different space (that caused replies to land in the wrong conversation).
@@ -154,7 +180,12 @@
     const normalizedURL = String(url || '');
     if (/googleapis\.com/i.test(normalizedURL)) return true;
     if (/chat\.google\.com/i.test(normalizedURL)) return true;
-    return !!headersObj.authorization;
+    // Chat SPA's own /api/ XHRs use relative URLs and carry no authorization
+    // header — only xsrf + cookies. Treat xsrf alone as sufficient signal so
+    // we still capture those tokens.
+    if (headersObj && headersObj['x-framework-xsrf-token']) return true;
+    if (/^\/u\/\d+\/api\//.test(normalizedURL)) return true;
+    return !!(headersObj && headersObj.authorization);
   }
 
   // Emit the full auth token (unredacted) to the isolated-world content
@@ -170,12 +201,23 @@
     const fp = authorization + '|' + xsrf + '|' + authuser;
     if (fp === lastTokenFingerprint) return;
     lastTokenFingerprint = fp;
+    // Also surface batchexecute boq params (at / f.sid / bl) so backend can
+    // drive batchexecute RPCs through the generic proxy primitive.
+    let boq = { at: '', fsid: '', bl: '' };
+    try { boq = readBoqParams(); } catch {}
+
     try {
       window.dispatchEvent(new CustomEvent('chat-agent-token', {
         detail: {
           authorization,
           x_framework_xsrf_token: xsrf,
           x_goog_authuser: authuser,
+          x_goog_ext_353267353_bin: state.googExtBin || '',
+          x_client_data: state.xClientData || '',
+          account_base: state.accountBase || '/u/0',
+          boq_at: boq.at,
+          boq_fsid: boq.fsid,
+          boq_bl: boq.bl,
           for_url: url,
           observed_at: new Date().toISOString(),
         },
@@ -250,6 +292,17 @@
         for (const r of rs) r();
       }
     }
+    // Chat SPA attaches this opaque base64 blob on mutation POSTs (looks like
+    // a client-side feature-flag set). update_reaction in particular won't
+    // succeed without it. Cache the most recent value we see.
+    if (typeof headers['x-goog-ext-353267353-bin'] === 'string' && headers['x-goog-ext-353267353-bin']) {
+      state.googExtBin = headers['x-goog-ext-353267353-bin'];
+    }
+    // x-client-data is a Chrome-only experiment/finch fingerprint header
+    // (base64). Some Google endpoints look at it for client identification.
+    if (typeof headers['x-client-data'] === 'string' && headers['x-client-data']) {
+      state.xClientData = headers['x-client-data'];
+    }
 
     if (CREATE_TOPIC_PATH.test(url)) {
       if (Array.isArray(parsed[4])) {
@@ -273,6 +326,32 @@
         url,
         bodyPreview: String(body || '').slice(0, 160),
       });
+    }
+
+    if (UPDATE_REACTION_PATH.test(url)) {
+      const emojiKey = parsed?.[1]?.[1]?.[2];
+      const actionCode = parsed?.[2];
+      const actionName = actionCode === 2 ? 'remove' : actionCode === 1 ? 'add' : '';
+      if (typeof emojiKey === 'string' && emojiKey && actionName) {
+        const key = `${actionName}|${emojiKey}`;
+        state.reactionTemplatesByKey[key] = cloneJSON(parsed);
+        const uniqueID = parsed?.[1]?.[1]?.[8];
+        if (typeof uniqueID === 'string' && uniqueID) {
+          state.reactionUniqueIDByEmoji[emojiKey] = uniqueID;
+        }
+        const uuid = parsed?.[1]?.[1]?.[0];
+        if (typeof uuid === 'string' && uuid) {
+          state.reactionUUIDByEmoji[emojiKey] = uuid;
+        }
+        emitDebug('main_template_updated', {
+          kind: 'update_reaction',
+          url,
+          emoji: emojiKey,
+          action: actionName,
+          knownKeys: Object.keys(state.reactionTemplatesByKey),
+          bodyPreview: String(body || '').slice(0, 240),
+        });
+      }
     }
   }
 
@@ -478,6 +557,292 @@
     });
   }
 
+  // --- emoji catalog (parsed from /api/get_frecent_emojis_v2) --------------
+  //
+  // Chat fetches this at startup. The response contains every emoji the user
+  // has recently used, with the exact uuid/blob/user-id/local-id/timestamp
+  // we need to synthesize update_reaction payloads from scratch. Parsing it
+  // once gives us reaction support for every emoji in the user's frecent
+  // list without needing per-emoji "tap to seed" captures.
+  function parseFrecentEmojisResponse(text) {
+    if (typeof text !== 'string') return [];
+    const stripped = text.replace(/^\)\]\}'\s*/, '');
+    try {
+      const parsed = JSON.parse(stripped);
+      const entries = parsed?.[0]?.[1];
+      return Array.isArray(entries) ? entries : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function ingestFrecentEmojis(text) {
+    const entries = parseFrecentEmojisResponse(text);
+    let added = 0;
+    for (const entry of entries) {
+      if (!Array.isArray(entry) || entry.length < 2) continue;
+      const outer0 = entry[0];
+      const outer1 = entry[1];
+      if (outer0 === null && Array.isArray(outer1)) {
+        // custom emoji
+        const uuid = outer1[0];
+        const shortcode = outer1[2];
+        const userIdArr = outer1[4];
+        const localIdArr = outer1[5];
+        const timestamp = outer1[7];
+        const blob = outer1[8];
+        if (typeof shortcode === 'string' && shortcode) {
+          state.emojiCatalog[shortcode] = {
+            type: 'custom',
+            uuid: typeof uuid === 'string' ? uuid : '',
+            shortcode,
+            userId: Array.isArray(userIdArr) && typeof userIdArr[0] === 'string' ? userIdArr[0] : '',
+            localId: Array.isArray(localIdArr) && typeof localIdArr[0] === 'string' ? localIdArr[0] : '',
+            timestamp: Number(timestamp || 0),
+            blob: typeof blob === 'string' ? blob : '',
+          };
+          added += 1;
+        }
+      } else if (Array.isArray(outer0)) {
+        // unicode emoji
+        const unicode = outer0[0];
+        const aliases = Array.isArray(outer0[1]) ? outer0[1].filter((a) => typeof a === 'string' && a) : [];
+        if (typeof unicode === 'string' && unicode) {
+          const item = { type: 'unicode', unicode, aliases };
+          state.emojiCatalog[unicode] = item;
+          for (const alias of aliases) state.emojiCatalog[alias] = item;
+          added += 1;
+        }
+      }
+    }
+    if (added > 0) {
+      const customKeys = Object.keys(state.emojiCatalog).filter((k) => state.emojiCatalog[k].type === 'custom');
+      const unicodeChars = Object.keys(state.emojiCatalog).filter((k) => state.emojiCatalog[k].type === 'unicode' && state.emojiCatalog[k].unicode === k);
+      emitDebug('main_emoji_catalog_updated', {
+        added,
+        totalCustom: customKeys.length,
+        totalUnicode: unicodeChars.length,
+        sample: customKeys.slice(0, 5).concat(unicodeChars.slice(0, 5)),
+      });
+      // Tell content.js to ship the catalog to the backend so the direct
+      // (no-extension-XHR) /api/reactions/direct path can resolve emoji
+      // without the extension being involved per-request.
+      try {
+        window.postMessage({
+          source: 'chat-agent-main',
+          type: 'emoji-catalog',
+          entries: state.emojiCatalog,
+        }, '*');
+      } catch {}
+    }
+    return added;
+  }
+
+  // --- generic backend-driven XHR proxy ----------------------------------
+  //
+  // Backend issues `proxy_request` over WS with {req_id, url, method, headers,
+  // body}; we run the XHR inside chat.google.com's origin (so Chrome integrity
+  // + cookies are auto-attached) and post `proxy-result` back. The extension
+  // is intentionally dumb about what the URL / payload mean.
+  async function handleProxyRequest(detail) {
+    const reqId = detail?.reqId;
+    const url = String(detail?.url || '');
+    const method = String(detail?.method || 'GET').toUpperCase();
+    const headers = detail?.headers || {};
+    const body = detail?.body || '';
+    if (!url) {
+      window.postMessage({
+        source: 'chat-agent-main',
+        type: 'proxy-result',
+        reqId,
+        ok: false,
+        error: 'url required',
+      }, '*');
+      return;
+    }
+    emitDebug('main_proxy_request', { reqId, url, method, bodyLen: body.length, headerKeys: Object.keys(headers) });
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(method, url, true);
+        for (const [k, v] of Object.entries(headers || {})) {
+          if (k && v != null) {
+            try { xhr.setRequestHeader(k, String(v)); } catch {}
+          }
+        }
+        xhr.onload = function () {
+          // collect response headers (best effort; not all are exposed cross-origin)
+          const respHeader = {};
+          const raw = xhr.getAllResponseHeaders() || '';
+          for (const line of raw.split(/\r?\n/)) {
+            const idx = line.indexOf(':');
+            if (idx > 0) respHeader[line.slice(0, idx).toLowerCase().trim()] = line.slice(idx + 1).trim();
+          }
+          resolve({ status: xhr.status, response: String(xhr.responseText || ''), respHeader });
+        };
+        xhr.onerror = function () { reject(new Error('proxy network error')); };
+        if (body) xhr.send(typeof body === 'string' ? body : JSON.stringify(body));
+        else xhr.send();
+      });
+      window.postMessage({
+        source: 'chat-agent-main',
+        type: 'proxy-result',
+        reqId,
+        ok: true,
+        status: result.status,
+        response: result.response,
+        respHeader: result.respHeader,
+      }, '*');
+    } catch (error) {
+      window.postMessage({
+        source: 'chat-agent-main',
+        type: 'proxy-result',
+        reqId,
+        ok: false,
+        error: String(error?.message || error),
+      }, '*');
+    }
+  }
+
+  // --- update_reaction (emoji react / unreact) [deprecated — now goes via
+  // proxy_request from backend, kept temporarily for back-compat] ---------
+  function randomReactionUUID() {
+    // Standard UUID v4 shape — Chat's own client uses this exact form.
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+
+  function buildUpdateReactionPayload(detail) {
+    const emoji = String(detail?.emoji || '');
+    if (!emoji) throw new Error('emoji required');
+    const messageId = String(detail?.messageId || '');
+    const spaceID = spaceIDFromKey(detail?.spaceKey);
+    if (!messageId) throw new Error('message_id required');
+    if (!spaceID) throw new Error('space_key required');
+    const action = detail?.action === 'remove' ? 2 : 1;
+
+    const cat = state.emojiCatalog[emoji];
+    if (!cat) {
+      const custom = Object.keys(state.emojiCatalog).filter((k) => state.emojiCatalog[k]?.type === 'custom');
+      throw new Error(
+        `emoji "${emoji}" not in frecent catalog (${custom.length} custom + unicode loaded). Reload Chat tab to refresh, or use this emoji once in Chat.`
+      );
+    }
+
+    // payload layout (custom + unicode share the outer skeleton):
+    //   [0] = [[null,null,null,[null, msgId, [[spaceId]]]], msgId]
+    //   [1] = [null, <emoji segment>]
+    //   [2] = action (1 add | 2 remove)
+    //   [3..99] = null padding
+    //   [100] = footer
+    const payload = new Array(101).fill(null);
+    payload[0] = [[null, null, null, [null, messageId, [[spaceID]]]], messageId];
+
+    if (cat.type === 'custom') {
+      payload[1] = [null, [
+        cat.uuid,
+        null,
+        cat.shortcode,
+        1,
+        [cat.userId || ''],
+        [cat.localId || ''],
+        null,
+        Number(cat.timestamp) || 0,
+        cat.blob || '',
+      ]];
+    } else {
+      // unicode — server identifies emoji by codepoint, no uuid/blob needed.
+      // Wire shape (from real capture): payload[1] is just [unicode_char].
+      payload[1] = [cat.unicode];
+    }
+    payload[2] = action;
+    payload[100] = buildFooter();
+
+    emitDebug('main_reaction_payload_built', {
+      reqId: detail?.reqId,
+      messageId,
+      spaceID,
+      emoji,
+      emojiType: cat.type,
+      action,
+      payloadPreview: JSON.stringify(payload).slice(0, 360),
+    });
+    return { payload, spaceID };
+  }
+
+  function sendUpdateReaction(detail) {
+    const { payload, spaceID } = buildUpdateReactionPayload(detail);
+    const url = `${state.accountBase}/api/update_reaction?c=${nextApiCounter()}`;
+    emitDebug('main_send_update_reaction', {
+      reqId: detail?.reqId,
+      url,
+      messageId: detail?.messageId,
+      emoji: detail?.emoji,
+      action: detail?.action,
+      hasExtBin: !!state.googExtBin,
+    });
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      if (state.requestHeaders?.['accept-language']) {
+        xhr.setRequestHeader('Accept-Language', state.requestHeaders['accept-language']);
+      }
+      if (state.requestHeaders?.['x-framework-xsrf-token']) {
+        xhr.setRequestHeader('X-Framework-Xsrf-Token', state.requestHeaders['x-framework-xsrf-token']);
+      }
+      if (spaceID) {
+        xhr.setRequestHeader('X-Goog-Chat-Space-Id', spaceID);
+      }
+      if (state.googExtBin) {
+        xhr.setRequestHeader('X-Goog-Ext-353267353-Bin', state.googExtBin);
+      }
+      xhr.onload = function () {
+        const ok = xhr.status >= 200 && xhr.status < 300;
+        if (!ok) {
+          reject(Object.assign(
+            new Error(`update_reaction failed: ${xhr.status} ${truncate(String(xhr.responseText || ''))}`),
+            { status: xhr.status }
+          ));
+          return;
+        }
+        resolve({ status: xhr.status, responseText: String(xhr.responseText || '') });
+      };
+      xhr.onerror = function () {
+        emitDebug('main_reaction_network_error', { reqId: detail?.reqId, url });
+        reject(new Error('update_reaction network error'));
+      };
+      xhr.send(JSON.stringify(payload));
+    });
+  }
+
+  async function handleReactionRequest(detail) {
+    const reqId = detail?.reqId;
+    try {
+      const result = await sendUpdateReaction(detail);
+      window.postMessage({
+        source: 'chat-agent-main',
+        type: 'reaction-result',
+        reqId,
+        ok: true,
+        status: result?.status || 0,
+      }, '*');
+    } catch (error) {
+      window.postMessage({
+        source: 'chat-agent-main',
+        type: 'reaction-result',
+        reqId,
+        ok: false,
+        error: String(error?.message || error),
+        status: Number(error?.status || 0),
+      }, '*');
+    }
+  }
+
   async function handleSendRequest(detail) {
     const draftId = detail?.draftId;
     const sendMode = detail?.sendMode || 'new_topic';
@@ -526,6 +891,15 @@
     if (data.type === 'send-request') {
       emitDebug('main_postmessage_received', { draftId: data.detail?.draftId });
       await handleSendRequest(data.detail || {});
+      return;
+    }
+    if (data.type === 'reaction-request') {
+      emitDebug('main_reaction_request_received', { reqId: data.detail?.reqId, messageId: data.detail?.messageId });
+      await handleReactionRequest(data.detail || {});
+      return;
+    }
+    if (data.type === 'proxy-request') {
+      await handleProxyRequest(data.detail || {});
       return;
     }
     if (data.type === 'fetch-space' && typeof data.space_id === 'string' && data.space_id) {
@@ -761,6 +1135,9 @@
         try {
           respText = String(this.responseText || '');
         } catch {}
+        if (/\/api\/get_frecent_emojis_v2(?:\?|$)/.test(String(meta.url))) {
+          ingestFrecentEmojis(respText);
+        }
         emit('xhr', meta.url, {
           method: meta.method,
           headers: redactHeaders(meta.headers || {}),

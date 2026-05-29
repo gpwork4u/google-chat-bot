@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 )
 
 // Sentinel errors for mining-queue operations.
@@ -54,7 +53,7 @@ FROM space_facts_mining_jobs WHERE space_key = $1`, spaceKey,
 		&existing.CreatedAt, &existing.UpdatedAt,
 	)
 
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		// No existing row — INSERT.
 		var job MiningJob
 		err2 := db.QueryRow(ctx, `
@@ -157,7 +156,7 @@ FROM space_facts_mining_jobs WHERE space_key = $1`
 		&job.CandidatesGenerated, &job.ErrorMessage,
 		&job.CreatedAt, &job.UpdatedAt,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		return nil, ErrMiningJobNotFound
 	}
 	return &job, err
@@ -208,7 +207,7 @@ RETURNING id, space_key, status, last_mined_message_id, last_mined_at, candidate
 		&job.CandidatesGenerated, &job.ErrorMessage,
 		&job.CreatedAt, &job.UpdatedAt,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		return nil, ErrMiningJobNotFound
 	}
 	if err != nil {

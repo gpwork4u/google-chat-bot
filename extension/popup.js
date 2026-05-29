@@ -1,4 +1,4 @@
-const BACKEND = 'http://localhost:8080';
+const BACKEND = 'http://localhost:8090';
 const statusEl = document.getElementById('status');
 const autoEl = document.getElementById('auto');
 
@@ -22,7 +22,7 @@ async function refresh() {
     statusEl.innerText = '後端已連線';
   } catch (e) {
     statusEl.className = 'status err';
-    statusEl.innerText = '後端沒啟動？（localhost:8080）';
+    statusEl.innerText = '後端沒啟動？（localhost:8090）';
   }
 }
 

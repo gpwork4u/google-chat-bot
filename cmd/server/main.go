@@ -13,6 +13,7 @@ import (
 	"github.com/ailabs-tw/google-chat-bot/internal/config"
 	"github.com/ailabs-tw/google-chat-bot/internal/httpapi"
 	"github.com/ailabs-tw/google-chat-bot/internal/hub"
+	"github.com/ailabs-tw/google-chat-bot/internal/memstore"
 	"github.com/ailabs-tw/google-chat-bot/internal/store"
 	"github.com/ailabs-tw/google-chat-bot/internal/worker"
 )
@@ -50,9 +51,14 @@ func main() {
 	slog.Info("migrations applied")
 
 	h := hub.New()
+	// In-memory raw_events store — 50k event ring buffer. Replaces the DB
+	// raw_events table; we explicitly trade durability for zero-dependency.
+	rawEvents := memstore.NewRawEventStore(50000)
 	chatProc := worker.NewChatProcessor(db, h, cfg.LocalUserEmail, cfg.LocalUserName)
+	chatProc.SetRawEvents(rawEvents)
 	chatProc.SetChatSessionFile(cfg.ChatSessionFile)
 	router := httpapi.NewRouter(cfg, db, h, chatProc)
+	httpapi.SetRawEventsStore(rawEvents)
 
 	go chatProc.Run(ctx)
 

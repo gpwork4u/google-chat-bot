@@ -116,6 +116,13 @@ type extInMsg struct {
 	Success bool            `json:"success,omitempty"`
 	Error   string          `json:"error,omitempty"`
 	Token   json.RawMessage `json:"token,omitempty"`
+
+	// reaction_result: extension's reply to a hub-published reaction_request.
+	// proxy_response: extension's reply to a hub-published proxy_request.
+	ReqID      string            `json:"req_id,omitempty"`
+	Status     int               `json:"status,omitempty"`
+	Response   string            `json:"response,omitempty"`
+	RespHeader map[string]string `json:"resp_header,omitempty"`
 }
 
 func handleExtWS(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *config.Config, h *hub.Hub, ing Ingestor) {
@@ -248,10 +255,7 @@ func handleExtInbound(ctx context.Context, db *store.DB, cfg *config.Config, h *
 		if u, _ := requireLocalUser(ctx, db, cfg); u != nil {
 			uid = u.ID
 		}
-		if err := db.InsertRawEvent(ctx, uid, m.Kind, m.URL, data); err != nil {
-			slog.Warn("ws ext insert raw", "err", err)
-			return
-		}
+		insertRawEvent(ctx, uid, m.Kind, m.URL, data)
 		if ing != nil {
 			if err := ing.Ingest(ctx, m.Kind, m.URL, data); err != nil {
 				slog.Warn("ws ext ingest", "err", err, "url", m.URL)
@@ -267,9 +271,7 @@ func handleExtInbound(ctx context.Context, db *store.DB, cfg *config.Config, h *
 		if u, _ := requireLocalUser(ctx, db, cfg); u != nil {
 			uid = u.ID
 		}
-		if err := db.InsertRawEvent(ctx, uid, "ext-debug", "/ws/ext/debug", payload); err != nil {
-			slog.Warn("ws ext insert debug", "err", err)
-		}
+		insertRawEvent(ctx, uid, "ext-debug", "/ws/ext/debug", payload)
 
 	case "sent":
 		if m.DraftID <= 0 {
@@ -303,8 +305,32 @@ func handleExtInbound(ctx context.Context, db *store.DB, cfg *config.Config, h *
 		if u, _ := requireLocalUser(ctx, db, cfg); u != nil {
 			uid = u.ID
 		}
-		if err := db.InsertRawEvent(ctx, uid, "auth-token", "/ws/ext/token", m.Token); err != nil {
-			slog.Warn("ws ext insert token", "err", err)
+		insertRawEvent(ctx, uid, "auth-token", "/ws/ext/token", m.Token)
+
+	case "reaction_result":
+		if m.ReqID == "" {
+			return
+		}
+		if h != nil {
+			h.CompleteReaction(m.ReqID, hub.ReactionResult{
+				OK:     m.Success,
+				Error:  m.Error,
+				Status: m.Status,
+			})
+		}
+
+	case "proxy_response":
+		if m.ReqID == "" {
+			return
+		}
+		if h != nil {
+			h.CompleteProxy(m.ReqID, hub.ProxyResult{
+				OK:         m.Success,
+				Error:      m.Error,
+				Status:     m.Status,
+				Response:   m.Response,
+				RespHeader: m.RespHeader,
+			})
 		}
 
 	case "hello":

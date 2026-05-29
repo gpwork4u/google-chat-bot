@@ -8,7 +8,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 )
 
 type Message struct {
@@ -269,7 +268,7 @@ WHERE m.id = $1 AND m.user_id = $2`
 		&m.ID, &m.UserID, &m.SpaceKey, &m.SpaceName, &m.ThreadKey, &m.MessageKey,
 		&m.SenderID, &m.SenderName, &m.SenderIsMe, &m.Body, &m.ObservedAt, &m.CreatedAt,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		return nil, nil
 	}
 	return &m, err
@@ -291,7 +290,7 @@ func (db *DB) UpsertDraftForMessage(ctx context.Context, messageID int64, body, 
 	err = db.QueryRow(ctx,
 		`SELECT id FROM drafts WHERE message_id=$1 AND status IN ('pending','approved') ORDER BY id DESC LIMIT 1`,
 		messageID).Scan(&existingID)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err != nil && !errors.Is(err, ErrNoRows) {
 		return 0, "", err
 	}
 	if existingID > 0 {
@@ -353,7 +352,7 @@ WHERE id = $1`
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
+	n, _ := ct.RowsAffected(); if n == 0 {
 		return errors.New("draft not found")
 	}
 	return nil
@@ -370,7 +369,7 @@ WHERE id = $1`
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
+	n, _ := ct.RowsAffected(); if n == 0 {
 		return errors.New("draft not found")
 	}
 	return nil
@@ -386,7 +385,7 @@ WHERE id = $1`
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
+	n, _ := ct.RowsAffected(); if n == 0 {
 		return errors.New("draft not found")
 	}
 	return nil
@@ -405,7 +404,7 @@ WHERE id = $1`
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
+	n, _ := ct.RowsAffected(); if n == 0 {
 		return errors.New("draft not found")
 	}
 	return nil
@@ -505,9 +504,10 @@ LIMIT $2`
 		if err := rows.Scan(&p.DraftID, &p.MessageID, &p.SpaceKey, &p.ThreadKey, &p.Body, &p.SendMode); err != nil {
 			return nil, err
 		}
-		if ref, err := db.ResolveCreateTopicSpaceRef(ctx, userID, p.SpaceKey, p.ThreadKey); err == nil && len(ref) > 0 {
-			p.SpaceRef = ref
-		}
+		// Note: SpaceRef used to be resolved by joining raw_events. Since
+		// raw_events moved to in-memory and the new send path is
+		// backend-driven (it synthesizes the ref from spaceKey alone), we
+		// leave p.SpaceRef nil here.
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -520,7 +520,7 @@ func (db *DB) GetDraft(ctx context.Context, id int64) (*Draft, error) {
 		&d.ID, &d.MessageID, &d.Body, &d.Model, &d.SendMode, &d.Status, &d.AutoSent,
 		&d.Confidence, &d.Reasoning, &d.Error, &d.CreatedAt, &d.UpdatedAt, &d.SentAt,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		return nil, nil
 	}
 	return &d, err
@@ -551,7 +551,7 @@ func (db *DB) GetUserSettings(ctx context.Context, userID int64) (*UserSettings,
 		&s.FreshnessWindowMinutes, &s.DebugMode,
 		&s.SafetyRailsEnabled, &s.SafetyRules,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		// Create a default row.
 		_, err := db.Exec(ctx, `INSERT INTO user_settings(user_id) VALUES ($1) ON CONFLICT DO NOTHING`, userID)
 		if err != nil {

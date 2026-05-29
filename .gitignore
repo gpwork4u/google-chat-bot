@@ -16,3 +16,6 @@ chat_session.json
 
 # Built binary at repo root (only for local dev)
 /backfill-skip
+
+# SQLite database files (file-backed store; data is local-only)
+/data/

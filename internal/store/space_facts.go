@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 )
 
 // Sentinel errors for space_facts operations.
@@ -141,7 +140,7 @@ FROM space_facts WHERE id = $1`
 		&f.ID, &f.SpaceKey, &f.Category, &f.Content, &f.Visibility, &f.Status,
 		&f.SourceMessageIDs, &f.Note, &f.CreatedBy, &f.CreatedAt, &f.UpdatedAt, &f.ApprovedAt,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		return nil, ErrFactNotFound
 	}
 	if err != nil {
@@ -266,7 +265,7 @@ RETURNING id, space_key, category, content, visibility, status, source_message_i
 		&f.ID, &f.SpaceKey, &f.Category, &f.Content, &f.Visibility, &f.Status,
 		&f.SourceMessageIDs, &f.Note, &f.CreatedBy, &f.CreatedAt, &f.UpdatedAt, &f.ApprovedAt,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		return nil, ErrFactNotFound
 	}
 	if err != nil {
@@ -285,7 +284,7 @@ func (db *DB) DeleteSpaceFact(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
+	n, _ := ct.RowsAffected(); if n == 0 {
 		return ErrFactNotFound
 	}
 	return nil

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 )
 
 // ProfileFact is one piece of user-curated personal info the AI skill
@@ -30,7 +29,7 @@ WHERE user_id = $1`
 		q += ` AND visibility <> 'secret'`
 	}
 	q += ` ORDER BY key ASC`
-	rows, err := db.Pool.Query(ctx, q, userID)
+	rows, err := db.Query(ctx, q, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -54,8 +53,8 @@ SELECT id, key, value, visibility, note, updated_at
 FROM user_profile_facts
 WHERE user_id = $1 AND key = $2`
 	var f ProfileFact
-	err := db.Pool.QueryRow(ctx, q, userID, key).Scan(&f.ID, &f.Key, &f.Value, &f.Visibility, &f.Note, &f.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	err := db.QueryRow(ctx, q, userID, key).Scan(&f.ID, &f.Key, &f.Value, &f.Visibility, &f.Note, &f.UpdatedAt)
+	if errors.Is(err, ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -71,8 +70,8 @@ SELECT id, key, value, visibility, note, updated_at
 FROM user_profile_facts
 WHERE user_id = $1 AND id = $2`
 	var f ProfileFact
-	err := db.Pool.QueryRow(ctx, q, userID, id).Scan(&f.ID, &f.Key, &f.Value, &f.Visibility, &f.Note, &f.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	err := db.QueryRow(ctx, q, userID, id).Scan(&f.ID, &f.Key, &f.Value, &f.Visibility, &f.Note, &f.UpdatedAt)
+	if errors.Is(err, ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -88,7 +87,7 @@ INSERT INTO user_profile_facts (user_id, key, value, visibility, note, updated_a
 VALUES ($1, $2, $3, $4, $5, NOW())
 RETURNING id`
 	var id int64
-	err := db.Pool.QueryRow(ctx, q, userID, f.Key, f.Value, f.Visibility, f.Note).Scan(&id)
+	err := db.QueryRow(ctx, q, userID, f.Key, f.Value, f.Visibility, f.Note).Scan(&id)
 	return id, err
 }
 
@@ -102,28 +101,28 @@ type PatchProfileFactRequest struct {
 
 func (db *DB) PatchProfileFact(ctx context.Context, userID int64, id int64, req PatchProfileFactRequest) error {
 	if req.Key != nil {
-		if _, err := db.Pool.Exec(ctx,
+		if _, err := db.Exec(ctx,
 			`UPDATE user_profile_facts SET key=$3, updated_at=NOW() WHERE user_id=$1 AND id=$2`,
 			userID, id, *req.Key); err != nil {
 			return err
 		}
 	}
 	if req.Value != nil {
-		if _, err := db.Pool.Exec(ctx,
+		if _, err := db.Exec(ctx,
 			`UPDATE user_profile_facts SET value=$3, updated_at=NOW() WHERE user_id=$1 AND id=$2`,
 			userID, id, *req.Value); err != nil {
 			return err
 		}
 	}
 	if req.Visibility != nil {
-		if _, err := db.Pool.Exec(ctx,
+		if _, err := db.Exec(ctx,
 			`UPDATE user_profile_facts SET visibility=$3, updated_at=NOW() WHERE user_id=$1 AND id=$2`,
 			userID, id, *req.Visibility); err != nil {
 			return err
 		}
 	}
 	if req.Note != nil {
-		if _, err := db.Pool.Exec(ctx,
+		if _, err := db.Exec(ctx,
 			`UPDATE user_profile_facts SET note=$3, updated_at=NOW() WHERE user_id=$1 AND id=$2`,
 			userID, id, *req.Note); err != nil {
 			return err
@@ -135,7 +134,7 @@ func (db *DB) PatchProfileFact(ctx context.Context, userID int64, id int64, req 
 // DeleteProfileFactByID removes a fact by numeric ID. Missing IDs are a no-op.
 func (db *DB) DeleteProfileFactByID(ctx context.Context, userID int64, id int64) error {
 	const q = `DELETE FROM user_profile_facts WHERE user_id = $1 AND id = $2`
-	_, err := db.Pool.Exec(ctx, q, userID, id)
+	_, err := db.Exec(ctx, q, userID, id)
 	return err
 }
 
@@ -150,13 +149,13 @@ ON CONFLICT (user_id, key) DO UPDATE SET
     visibility = EXCLUDED.visibility,
     note = EXCLUDED.note,
     updated_at = NOW()`
-	_, err := db.Pool.Exec(ctx, q, userID, f.Key, f.Value, f.Visibility, f.Note)
+	_, err := db.Exec(ctx, q, userID, f.Key, f.Value, f.Visibility, f.Note)
 	return err
 }
 
 // DeleteProfileFact removes a fact by key. Missing keys are a no-op.
 func (db *DB) DeleteProfileFact(ctx context.Context, userID int64, key string) error {
 	const q = `DELETE FROM user_profile_facts WHERE user_id = $1 AND key = $2`
-	_, err := db.Pool.Exec(ctx, q, userID, key)
+	_, err := db.Exec(ctx, q, userID, key)
 	return err
 }

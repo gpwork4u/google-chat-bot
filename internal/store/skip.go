@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 )
 
 // SkipResult holds the skip-mark fields returned after a skip operation.
@@ -54,7 +53,7 @@ RETURNING message_key, skipped_at, skip_reason, skipped_by`
 		// Successfully updated — first skip.
 		return &result, nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, ErrNoRows) {
 		return nil, err
 	}
 
@@ -66,7 +65,7 @@ WHERE user_id = $1 AND message_key = $2`
 
 	err = db.QueryRow(ctx, qSelect, userID, messageKey).
 		Scan(&result.MessageID, &result.SkippedAt, &result.SkipReason, &result.SkippedBy)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
@@ -88,7 +87,7 @@ WHERE user_id = $1 AND message_key = $2`
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
+	n, _ := ct.RowsAffected(); if n == 0 {
 		return ErrNotFound
 	}
 	return nil

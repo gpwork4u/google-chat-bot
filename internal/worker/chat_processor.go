@@ -12,6 +12,7 @@ import (
 
 	"github.com/ailabs-tw/google-chat-bot/internal/googleapi"
 	"github.com/ailabs-tw/google-chat-bot/internal/hub"
+	"github.com/ailabs-tw/google-chat-bot/internal/memstore"
 	"github.com/ailabs-tw/google-chat-bot/internal/parser"
 	"github.com/ailabs-tw/google-chat-bot/internal/store"
 )
@@ -53,6 +54,7 @@ func (p *ChatProcessor) isAfterSessionStart(t time.Time) bool {
 
 type ChatProcessor struct {
 	db              *store.DB
+	rawEvents       *memstore.RawEventStore
 	hub             *hub.Hub
 	mu              sync.Mutex // guards ingest ordering so ticker + push don't race
 	lastID          int64
@@ -61,6 +63,46 @@ type ChatProcessor struct {
 	userID          int64
 	chatSessionFile string
 	sessionStart    time.Time // messages observed before this are not ingested
+}
+
+// SetRawEvents attaches the in-memory raw-events ring buffer that the worker
+// polls in place of the deprecated raw_events DB table.
+func (p *ChatProcessor) SetRawEvents(rs *memstore.RawEventStore) {
+	p.rawEvents = rs
+}
+
+// rawEventRow mirrors what the (now-deleted) DB query used to return. The
+// worker only ever cares about id / kind / url / respText, so we keep this
+// local instead of leaking it through a public type.
+type rawEventRow struct {
+	ID       int64
+	Kind     string
+	URL      string
+	RespText string
+}
+
+// rawEventsSince returns events with id > lastID matching urlLike from the
+// in-memory store. Returns an empty slice if the store hasn't been wired
+// (tests).
+func (p *ChatProcessor) rawEventsSince(_ context.Context, lastID int64, urlLike string, limit int) ([]rawEventRow, error) {
+	if p.rawEvents == nil {
+		return nil, nil
+	}
+	events := p.rawEvents.Since(lastID, urlLike, limit)
+	out := make([]rawEventRow, 0, len(events))
+	for _, e := range events {
+		var probe struct {
+			RespText string `json:"respText"`
+		}
+		_ = json.Unmarshal(e.Payload, &probe)
+		out = append(out, rawEventRow{
+			ID:       e.ID,
+			Kind:     e.Kind,
+			URL:      e.URL,
+			RespText: probe.RespText,
+		})
+	}
+	return out, nil
 }
 
 // SessionStart returns when this processor instance began accepting
@@ -177,7 +219,7 @@ func (p *ChatProcessor) backfillMembersFromListTopics(ctx context.Context) (int,
 	var lastID int64
 	var upserted int
 	for {
-		rows, err := p.db.RawEventsSince(ctx, lastID, "%list_topics%", batchSize)
+		rows, err := p.rawEventsSince(ctx, lastID, "%list_topics%", batchSize)
 		if err != nil {
 			return upserted, err
 		}
@@ -210,7 +252,7 @@ func (p *ChatProcessor) backfillMembersFromUIgx0(ctx context.Context) (int, erro
 	var lastID int64
 	var upserted int
 	for {
-		rows, err := p.db.RawEventsSince(ctx, lastID, "%UIgx0%", batchSize)
+		rows, err := p.rawEventsSince(ctx, lastID, "%UIgx0%", batchSize)
 		if err != nil {
 			return upserted, err
 		}
@@ -244,7 +286,7 @@ func (p *ChatProcessor) backfillMembersFromListMembers(ctx context.Context) (int
 	var lastID int64
 	var upserted int
 	for {
-		rows, err := p.db.RawEventsSince(ctx, lastID, "%list_members%", batchSize)
+		rows, err := p.rawEventsSince(ctx, lastID, "%list_members%", batchSize)
 		if err != nil {
 			return upserted, err
 		}
@@ -277,7 +319,7 @@ func (p *ChatProcessor) backfillSpaceNames(ctx context.Context) error {
 	var lastID int64
 	var updated int
 	for {
-		rows, err := p.db.RawEventsSince(ctx, lastID, urlGetGroupLK, batchSize)
+		rows, err := p.rawEventsSince(ctx, lastID, urlGetGroupLK, batchSize)
 		if err != nil {
 			return err
 		}
@@ -309,7 +351,7 @@ func (p *ChatProcessor) backfillSpaceNames(ctx context.Context) error {
 	var bulkLastID int64
 	var bulkUpdated int
 	for {
-		rows, err := p.db.RawEventsSince(ctx, bulkLastID, "%jfcZG%", batchSize)
+		rows, err := p.rawEventsSince(ctx, bulkLastID, "%jfcZG%", batchSize)
 		if err != nil {
 			return err
 		}
@@ -349,7 +391,7 @@ func (p *ChatProcessor) tick(ctx context.Context) error {
 		return err
 	}
 
-	rows, err := p.db.RawEventsSince(ctx, p.lastID, urlChatAPILK, batchSize)
+	rows, err := p.rawEventsSince(ctx, p.lastID, urlChatAPILK, batchSize)
 	if err != nil {
 		return err
 	}

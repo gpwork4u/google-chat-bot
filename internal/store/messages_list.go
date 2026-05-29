@@ -3,9 +3,22 @@ package store
 import (
 	"context"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
+
+// rowScanner is the minimal interface for a single row scan. Implemented by
+// both *sql.Row and *sql.Rows so scanMessageForAPI can take either.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// rowsIter is the minimal interface for a multi-row iterator. Implemented by
+// *sql.Rows. We don't bother with Close()/Err() type-erasure since callers
+// own the *sql.Rows and call .Close() / .Err() directly.
+type rowsIter interface {
+	rowScanner
+	Next() bool
+	Err() error
+}
 
 // ListMessagesOpts holds query parameters for ListMessagesBySpace.
 type ListMessagesOpts struct {
@@ -51,7 +64,7 @@ SELECT
 FROM messages m` + memberJoin
 
 // scanMessageForAPI scans a single row produced by listMessagesSelectExpr.
-func scanMessageForAPI(row pgx.Row) (*MessageForAPI, error) {
+func scanMessageForAPI(row rowScanner) (*MessageForAPI, error) {
 	var m MessageForAPI
 	if err := row.Scan(
 		&m.ID, &m.MessageID, &m.SpaceKey, &m.ThreadKey,
@@ -63,7 +76,7 @@ func scanMessageForAPI(row pgx.Row) (*MessageForAPI, error) {
 	return &m, nil
 }
 
-func scanMessagesForAPI(rows pgx.Rows) ([]MessageForAPI, error) {
+func scanMessagesForAPI(rows rowsIter) ([]MessageForAPI, error) {
 	var out []MessageForAPI
 	for rows.Next() {
 		m, err := scanMessageForAPI(rows)

@@ -2,7 +2,7 @@
 //
 // Responsibilities:
 //   1. Inject inject-main.js into the page's MAIN world (for network hooks).
-//   2. Maintain a WebSocket to localhost:8080/ws/ext:
+//   2. Maintain a WebSocket to localhost:8090/ws/ext:
 //      - forward MAIN-world network/debug/token events to the backend
 //      - receive pending approved drafts and ask the MAIN-world helper to
 //        send them through Chat's private create_topic request path.
@@ -11,8 +11,8 @@
 // are still supported by the backend but we prefer the WS path because it
 // eliminates polling latency.
 
-const BACKEND_HTTP = 'http://localhost:8080';
-const BACKEND_WS = 'ws://localhost:8080/ws/ext';
+const BACKEND_HTTP = 'http://localhost:8090';
+const BACKEND_WS = 'ws://localhost:8090/ws/ext';
 const log = (...a) => console.log('[chat-agent]', ...a);
 const warn = (...a) => console.warn('[chat-agent]', ...a);
 
@@ -132,6 +132,47 @@ function onServerMessage(ev) {
       before_ms: msg.before_ms,
       page_size: msg.page_size,
     }, '*');
+    return;
+  }
+  if (msg.type === 'sync_history_scan' && msg.job_id) {
+    if (activeSyncJobs.has(msg.job_id)) return;
+    activeSyncJobs.add(msg.job_id);
+    window.postMessage({
+      source: 'chat-agent-content',
+      type: 'sync-history-scan',
+      job_id: msg.job_id,
+      space_key: msg.space_key || null,
+    }, '*');
+    return;
+  }
+  if (msg.type === 'reaction_request' && msg.req_id) {
+    window.postMessage({
+      source: 'chat-agent-content',
+      type: 'reaction-request',
+      detail: {
+        reqId: msg.req_id,
+        spaceKey: msg.space_key || '',
+        threadKey: msg.thread_key || '',
+        messageId: msg.message_id || '',
+        emoji: msg.emoji || '',
+        action: msg.action || 'add',
+      },
+    }, '*');
+    return;
+  }
+  if (msg.type === 'proxy_request' && msg.req_id) {
+    window.postMessage({
+      source: 'chat-agent-content',
+      type: 'proxy-request',
+      detail: {
+        reqId: msg.req_id,
+        url: msg.proxy_url || '',
+        method: msg.proxy_method || 'GET',
+        headers: msg.proxy_headers || {},
+        body: msg.proxy_body || '',
+      },
+    }, '*');
+    return;
   }
 }
 
@@ -147,7 +188,58 @@ window.addEventListener('chat-agent-net', (ev) => {
 window.addEventListener('chat-agent-token', (ev) => {
   const d = ev.detail || {};
   wsSend({ type: 'token', token: d });
+  // Also push a full auth-state snapshot (token + cookies) so the backend can
+  // call Chat directly without bouncing through extension XHRs.
+  pushAuthState(d).catch((e) => warn('auth-state push failed', e));
 });
+
+let lastAuthFingerprint = '';
+async function pushAuthState(token) {
+  const xsrf = token?.x_framework_xsrf_token || '';
+  if (!xsrf) return; // need xsrf at minimum
+  const cookies = await new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ type: 'dump-google-cookies' }, (res) => {
+        if (chrome.runtime.lastError) {
+          warn('cookies dump failed', chrome.runtime.lastError.message);
+          resolve([]);
+          return;
+        }
+        resolve(res?.ok ? (res.cookies || []) : []);
+      });
+    } catch (e) {
+      warn('cookies dump threw', e);
+      resolve([]);
+    }
+  });
+  // Dedup so we don't spam — fingerprint by xsrf + cookie count + sample SID.
+  const sid = cookies.find((c) => c.name === 'SID')?.value || '';
+  const fp = `${xsrf}|${cookies.length}|${sid.slice(0, 12)}`;
+  if (fp === lastAuthFingerprint) return;
+  lastAuthFingerprint = fp;
+  try {
+    await fetch(`${BACKEND_HTTP}/api/ext/auth-state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        x_framework_xsrf_token: xsrf,
+        x_goog_authuser: token?.x_goog_authuser || '',
+        x_goog_ext_353267353_bin: token?.x_goog_ext_353267353_bin || '',
+        x_client_data: token?.x_client_data || '',
+        account_base: token?.account_base || '/u/0',
+        boq_at: token?.boq_at || '',
+        boq_fsid: token?.boq_fsid || '',
+        boq_bl: token?.boq_bl || '',
+        user_agent: navigator.userAgent,
+        cookies,
+        observed_at: token?.observed_at || new Date().toISOString(),
+      }),
+    });
+    log('auth-state pushed', { cookies: cookies.length });
+  } catch (e) {
+    warn('auth-state fetch failed', e);
+  }
+}
 
 window.addEventListener('message', (ev) => {
   if (ev.source !== window) return;
@@ -156,6 +248,39 @@ window.addEventListener('message', (ev) => {
 
   if (data.type === 'debug') {
     wsSend({ type: 'debug', stage: data.stage || 'main_debug', data: data.data || {} });
+    return;
+  }
+
+  if (data.type === 'emoji-catalog' && data.entries) {
+    fetch(`${BACKEND_HTTP}/api/ext/emoji-catalog`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entries: data.entries }),
+    }).catch((e) => warn('emoji-catalog push failed', e));
+    return;
+  }
+
+  if (data.type === 'reaction-result') {
+    wsSend({
+      type: 'reaction_result',
+      req_id: data.reqId || '',
+      success: !!data.ok,
+      error: data.error || '',
+      status: Number(data.status || 0),
+    });
+    return;
+  }
+
+  if (data.type === 'proxy-result') {
+    wsSend({
+      type: 'proxy_response',
+      req_id: data.reqId || '',
+      success: !!data.ok,
+      error: data.error || '',
+      status: Number(data.status || 0),
+      response: data.response || '',
+      resp_header: data.respHeader || {},
+    });
     return;
   }
 

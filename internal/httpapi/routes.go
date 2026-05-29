@@ -22,6 +22,10 @@ func NewRouter(cfg *config.Config, db *store.DB, h *hub.Hub, ing Ingestor) http.
 	safetyRoutes(mux, db, cfg)
 	spaceFactsRoutes(mux, db, cfg)
 	messagesRoutes(mux, db, cfg)
+	reactionsRoutes(mux, db, cfg, h)
+	reactionsDirectRoutes(mux, db, cfg, h)
+	spacesHistoryRoutes(mux, db, cfg, h)
+	sendMessageRoutes(mux, db, cfg, h)
 	// webRoutes must be registered last — it registers the catch-all "/" handler
 	// that serves the React SPA for all unmatched paths.
 	webRoutes(mux)

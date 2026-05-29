@@ -1,18 +1,12 @@
-.PHONY: infra-up infra-down dev build test tidy clean \
+.PHONY: dev build test tidy clean \
         web-install web-dev web-build web-clean contracts \
         backfill-skip backfill-skip-apply
 
-# --- Infrastructure ---
-
-infra-up:
-	docker-compose up -d postgres
-
-infra-down:
-	docker-compose down
-
 # --- Backend ---
+# DB is SQLite (file-backed) — no infra to bring up. Default DB file is
+# ./data/chatbot.db, configurable via DATABASE_URL in .env.
 
-dev: infra-up web-build
+dev: web-build
 	@test -f .env || (echo "missing .env — copy .env.example and fill it in"; exit 1)
 	go run ./cmd/server
 

@@ -7,12 +7,16 @@
     "default_popup": "popup.html",
     "default_title": "Chat AI Agent"
   },
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage", "tabs", "cookies"],
   "host_permissions": [
     "https://chat.google.com/*",
     "https://mail.google.com/*",
-    "http://localhost:8080/*"
+    "https://*.google.com/*",
+    "http://localhost:8090/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "web_accessible_resources": [
     {
       "resources": ["inject-main.js"],

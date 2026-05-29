@@ -103,6 +103,18 @@ make contracts      # 從 Go types 重新產 TS contracts
 └── Makefile
 ```
 
+## 為什麼所有發送 / mutation 都必須走 Chrome extension
+
+曾嘗試「backend 直接 `POST https://chat.google.com/u/0/api/...`」走 Go HTTP client，省去 Chat tab 必須開著的限制。**走不通**：
+
+- Google Chat 對 `/api/update_reaction` 等 mutation endpoint 會檢查 Chrome 注入的整套 anti-abuse signal，最關鍵的是 `x-browser-validation` ── 一個 **per-request 的簽章**，由 Chrome native code 在 send 之前最後一刻計算，內容取決於 URL / body 等。JS 看不到、JS hook 攔不到、`chrome.cookies` API 也讀不到。
+- 其他 `x-client-data`（finch flags）、`sec-ch-ua-*`（Client Hints）也都是 Chrome native 自動附加；JS 的 `setRequestHeader` 之後 Chrome 才補上，extension 沒辦法觀察。
+- 即使把 86 個 google.com cookie + xsrf token 都從 extension 透過 `chrome.cookies` 拋給 backend，Go HTTP client 打 chat.google.com 仍會收到 **401 / code 16**（auth/integrity 失敗）。
+
+結論：所有寫操作（send message / update_reaction / 任何 `/api/...` POST）**必須在 chat.google.com 原生 origin 內由 Chrome 發送**，backend 只能透過 extension 代發。Chat tab 必須開著是這個架構的硬性前提。
+
+> 例外是讀操作：只需 cookie 沒 mutation 的 RPC 用 `cmd/backfill-skip` 那類腳本 + 拋出來的 session cookie 是可以直接打的，但會繞 PII 跟 abuse policy，本專案不採用。
+
 ## 開發工作流
 
 本專案使用 [SpecFlow](./CLAUDE.md) 自動化交付流程：spec-writer → tech-lead → engineer (backend/frontend/pipeline) + qa + ui-designer 並行 → verify → release。詳見 `specs/` 與 `CLAUDE.md`。

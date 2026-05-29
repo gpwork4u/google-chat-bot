@@ -5,7 +5,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 )
 
 const localExtensionGoogleSub = "local-extension-user"
@@ -40,7 +39,7 @@ func (db *DB) getUser(ctx context.Context, where string, args ...any) (*User, er
 		&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -128,7 +127,7 @@ WHERE user_id = $1 AND sender_is_me = TRUE
 GROUP BY sender_id, sender_name
 ORDER BY COUNT(*) DESC
 LIMIT 1`, userID).Scan(&senderID, &senderName)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		return nil
 	}
 	if err != nil {

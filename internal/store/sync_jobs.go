@@ -6,7 +6,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 )
 
 // ErrJobExists is returned when a sync job with the same job_id already exists.
@@ -62,7 +61,7 @@ WHERE job_id = $1`
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
+	n, _ := ct.RowsAffected(); if n == 0 {
 		return ErrJobNotFound
 	}
 	return nil
@@ -85,7 +84,7 @@ WHERE job_id = $1`
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
+	n, _ := ct.RowsAffected(); if n == 0 {
 		return ErrJobNotFound
 	}
 	return nil
@@ -107,7 +106,7 @@ WHERE job_id = $1`
 		&j.TotalMessages, &j.InsertedMessages, &j.DuplicateMessages, &j.FailedMessages,
 		&j.StartedAt, &j.CompletedAt, &j.ErrorMessage,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, ErrNoRows) {
 		return nil, ErrJobNotFound
 	}
 	if err != nil {
@@ -132,7 +131,7 @@ WHERE status = 'running'
 	if err != nil {
 		return 0, err
 	}
-	return int(ct.RowsAffected()), nil
+	n, _ := ct.RowsAffected(); return int(n), nil
 }
 
 // RunSyncJobTimeoutTicker starts a goroutine that calls MarkTimedOutJobs on the

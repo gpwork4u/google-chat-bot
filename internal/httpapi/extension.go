@@ -332,11 +332,7 @@ func handleExtRaw(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *con
 	if len(req.Data) == 0 {
 		req.Data = []byte("null")
 	}
-	if err := db.InsertRawEvent(ctx, uid, req.Kind, req.URL, req.Data); err != nil {
-		slog.Error("insert raw event", "err", err)
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
+	insertRawEvent(ctx, uid, req.Kind, req.URL, req.Data)
 	if ing != nil {
 		if err := ing.Ingest(ctx, req.Kind, req.URL, req.Data); err != nil {
 			slog.Warn("ingest raw", "err", err, "url", req.URL)
@@ -370,11 +366,7 @@ func handleExtDebug(w http.ResponseWriter, r *http.Request, db *store.DB, cfg *c
 	if u != nil {
 		uid = u.ID
 	}
-	if err := db.InsertRawEvent(ctx, uid, "ext-debug", "/api/ext/debug", payload); err != nil {
-		slog.Error("insert ext debug", "err", err)
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
+	insertRawEvent(ctx, uid, "ext-debug", "/api/ext/debug", payload)
 	w.WriteHeader(http.StatusNoContent)
 }
 
