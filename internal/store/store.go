@@ -114,13 +114,17 @@ func (db *DB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 // We keep callers writing $N + NOW() because that's how the historical query
 // strings are laid out.
 var (
-	pgPlaceholderRE = regexp.MustCompile(`\$\d+`)
+	pgPlaceholderRE = regexp.MustCompile(`\$(\d+)`)
 	pgNowRE         = regexp.MustCompile(`(?i)\bNOW\(\)`)
 	pgILikeRE       = regexp.MustCompile(`(?i)\bILIKE\b`)
 )
 
 func translatePlaceholders(q string) string {
-	q = pgPlaceholderRE.ReplaceAllString(q, "?")
+	// $N → ?N. SQLite supports numbered placeholders so out-of-order
+	// references in the SQL (e.g. WHERE x=$1 SET y=$2,z=$3) still bind to the
+	// caller's positional args[0..N-1] correctly — flat ? would silently mis-
+	// bind by SQL-declaration order.
+	q = pgPlaceholderRE.ReplaceAllString(q, "?$1")
 	q = pgNowRE.ReplaceAllString(q, "CURRENT_TIMESTAMP")
 	q = pgILikeRE.ReplaceAllString(q, "LIKE")
 	return q

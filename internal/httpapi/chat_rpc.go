@@ -27,7 +27,10 @@ func microsToISO(us int64) string {
 	return time.Unix(0, us*1000).UTC().Format(time.RFC3339)
 }
 
-var batchexecuteReqID int64
+// batchexecuteReqID is seeded high enough to look like a real Chat-web _reqid
+// (six-digit range). Google's anti-abuse seems to reject very low values
+// (we saw 400 with _reqid=1100).
+var batchexecuteReqID int64 = 100000
 
 func nextBatchexecuteReqID() int64 {
 	return atomic.AddInt64(&batchexecuteReqID, 1)
@@ -49,7 +52,7 @@ func batchexecuteCall(ctx context.Context, h *hub.Hub, rpcID string, innerReq an
 	if err != nil {
 		return "", fmt.Errorf("marshal inner req: %w", err)
 	}
-	fReq, err := json.Marshal([]any{[]any{[]any{rpcID, string(innerJSON), nil, "1"}}})
+	fReq, err := json.Marshal([]any{[]any{[]any{rpcID, string(innerJSON), nil, "3"}}})
 	if err != nil {
 		return "", fmt.Errorf("marshal f.req envelope: %w", err)
 	}
@@ -161,7 +164,12 @@ func listTopics(ctx context.Context, h *hub.Hub, spaceKey, pageToken string) (to
 		pt = pageToken
 	}
 	innerReq := []any{[]any{[]any{spaceID}}, 50, pt}
-	text, err := batchexecuteCall(ctx, h, "oGiIKf", innerReq, "")
+	auth := getAuthState()
+	sourcePath := ""
+	if auth != nil {
+		sourcePath = auth.AccountBase + "/app/chat/" + spaceID
+	}
+	text, err := batchexecuteCall(ctx, h, "oGiIKf", innerReq, sourcePath)
 	if err != nil {
 		return nil, "", err
 	}
@@ -217,7 +225,12 @@ type syncMessageGo struct {
 func getTopicMessages(ctx context.Context, h *hub.Hub, spaceKey, topicID, spaceName string) ([]syncMessageGo, error) {
 	spaceID := spaceIDFromKey(spaceKey)
 	innerReq := []any{[]any{[]any{spaceID}}, topicID, 100, nil}
-	text, err := batchexecuteCall(ctx, h, "QyR6M", innerReq, "")
+	auth := getAuthState()
+	sourcePath := ""
+	if auth != nil {
+		sourcePath = auth.AccountBase + "/app/chat/" + spaceID
+	}
+	text, err := batchexecuteCall(ctx, h, "QyR6M", innerReq, sourcePath)
 	if err != nil {
 		return nil, err
 	}

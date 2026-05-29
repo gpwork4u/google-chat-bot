@@ -84,13 +84,16 @@ func handleSpaceSyncHistory(w http.ResponseWriter, r *http.Request, db *store.DB
 		return
 	}
 
-	// Background goroutine runs the actual scan. Use a fresh context detached
-	// from the HTTP request so we can keep going if the caller is async.
-	scanCtx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
-	go func() {
-		defer cancel()
-		runSyncHistoryScan(scanCtx, db, h, user.ID, jobID, spaceKey)
-	}()
+	_ = user // kept for symmetry; used by finalizeSyncResponse below
+	// Trigger the extension to scan via its existing handleSyncHistoryScan
+	// orchestrator. Backend-side batchexecute drive (Phase 2) hit 400 on the
+	// updated Chat web build (oGiIKf appears to have been retired in favor
+	// of REST /api/list_topics, which has a much more complex payload that
+	// we haven't reverse-engineered yet). The extension still owns the
+	// happy-path scan loop and will POST results to /api/extension/sync-history.
+	if h != nil {
+		h.SyncHistoryScan(jobID, spaceKey)
+	}
 
 	if !wait {
 		writeJSON(w, http.StatusAccepted, map[string]any{
