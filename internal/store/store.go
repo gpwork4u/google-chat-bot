@@ -117,9 +117,30 @@ var (
 	pgPlaceholderRE = regexp.MustCompile(`\$(\d+)`)
 	pgNowRE         = regexp.MustCompile(`(?i)\bNOW\(\)`)
 	pgILikeRE       = regexp.MustCompile(`(?i)\bILIKE\b`)
+	// `value::type` and `value :: type` style casts. SQLite is dynamically
+	// typed so the cast is just noise — strip the suffix.
+	pgCastRE = regexp.MustCompile(`(?i)::\s*(timestamptz|timestamp|interval|int(?:eger)?|bigint|float|double precision|text|jsonb|json|uuid|bytea|boolean|bool)`)
+	// `NOW() ± INTERVAL 'N unit'` → `datetime('now', '±N unit')`.
+	pgIntervalNowRE = regexp.MustCompile(`(?i)\bNOW\(\)\s*([+-])\s*INTERVAL\s+'(\d+\s*\w+)'`)
+	// `$N ± INTERVAL 'N unit'` (typically `$N::timestamptz - INTERVAL 'x'` after
+	// the cast has been stripped above).
+	pgIntervalParamRE = regexp.MustCompile(`(?i)\$(\d+)\s*([+-])\s*INTERVAL\s+'(\d+\s*\w+)'`)
 )
 
 func translatePlaceholders(q string) string {
+	// Order matters: strip ::casts first so the INTERVAL rewrites see a clean
+	// `$N - INTERVAL '...'` shape after `$N::timestamptz - INTERVAL '...'`.
+	q = pgCastRE.ReplaceAllString(q, "")
+	q = pgIntervalNowRE.ReplaceAllStringFunc(q, func(m string) string {
+		sub := pgIntervalNowRE.FindStringSubmatch(m)
+		// sub[1] = sign, sub[2] = "N unit"
+		return "datetime('now', '" + sub[1] + sub[2] + "')"
+	})
+	q = pgIntervalParamRE.ReplaceAllStringFunc(q, func(m string) string {
+		sub := pgIntervalParamRE.FindStringSubmatch(m)
+		// sub[1] = N (param index), sub[2] = sign, sub[3] = "N unit"
+		return "datetime($" + sub[1] + ", '" + sub[2] + sub[3] + "')"
+	})
 	// $N → ?N. SQLite supports numbered placeholders so out-of-order
 	// references in the SQL (e.g. WHERE x=$1 SET y=$2,z=$3) still bind to the
 	// caller's positional args[0..N-1] correctly — flat ? would silently mis-

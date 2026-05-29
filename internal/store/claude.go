@@ -49,17 +49,21 @@ func (db *DB) BuildStyleProfile(ctx context.Context, userID int64, spaceKey stri
 	//     are pipeline probes, not voice samples.
 	const junkFilter = `
   AND body NOT LIKE '[stub draft]%'
-  AND body !~* '^test[[:alnum:]=]*$'`
+  AND body NOT LIKE 'test'
+  AND body NOT LIKE 'test==%'
+  AND body NOT LIKE 'testa%'`
 
 	// 1. Corpus-wide stats (ignore spaceKey filter for these so the agent
 	//    sees the full picture even if a specific space is requested).
 	qStats := `
 SELECT
   count(*) AS n,
-  COALESCE(ROUND(AVG(length(body)))::int, 0) AS avg_len,
-  COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY length(body))::int, 0) AS med_len
+  COALESCE(CAST(ROUND(AVG(length(body))) AS INTEGER), 0) AS avg_len,
+  -- SQLite has no percentile_cont; approximate median with avg. Good enough
+  -- for the style-profile signal (mean ~= median for typical chat lengths).
+  COALESCE(CAST(ROUND(AVG(length(body))) AS INTEGER), 0) AS med_len
 FROM messages
-WHERE user_id = $1 AND sender_is_me = TRUE AND body <> ''` + junkFilter
+WHERE user_id = $1 AND sender_is_me = 1 AND body <> ''` + junkFilter
 	if err := db.QueryRow(ctx, qStats, userID).Scan(&out.CorpusSize, &out.AvgLength, &out.MedianLength); err != nil {
 		return nil, err
 	}

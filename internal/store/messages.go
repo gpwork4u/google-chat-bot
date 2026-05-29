@@ -62,39 +62,47 @@ type Draft struct {
 // If m.SkippedAt is non-nil the skip columns are written in the same INSERT,
 // making the auto-skip decision race-free (no separate UPDATE needed).
 func (db *DB) InsertOrGetMessage(ctx context.Context, m *Message) (inserted bool, err error) {
+	// SQLite has no xmax / equivalent way to detect insert-vs-conflict on a
+	// single RETURNING statement. Two-step: try INSERT ... ON CONFLICT DO
+	// NOTHING RETURNING (returns a row only on actual insert), and if 0 rows
+	// fall back to the enrichment UPDATE + SELECT.
+	args := []any{
+		m.UserID, m.SpaceKey, m.SpaceName, m.ThreadKey, m.MessageKey,
+		m.SenderID, m.SenderName, m.SenderIsMe, m.Body, m.ObservedAt, m.Mentioned,
+	}
+	insertCols := "user_id, space_key, space_name, thread_key, message_key, sender_id, sender_name, sender_is_me, body, observed_at, mentioned"
+	insertVals := "$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11"
 	if m.SkippedAt != nil {
-		// Skip-aware path: write skipped_at, skip_reason, skipped_by atomically.
-		const q = `
-INSERT INTO messages (user_id, space_key, space_name, thread_key, message_key, sender_id, sender_name, sender_is_me, body, observed_at, mentioned, skipped_at, skip_reason, skipped_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-ON CONFLICT (user_id, message_key) DO UPDATE SET
-    sender_id = CASE
-        WHEN messages.sender_id = '' AND EXCLUDED.sender_id <> '' THEN EXCLUDED.sender_id
-        ELSE messages.sender_id
-    END
-RETURNING id, created_at, (xmax = 0) AS inserted`
-		return inserted, db.QueryRow(ctx, q,
-			m.UserID, m.SpaceKey, m.SpaceName, m.ThreadKey, m.MessageKey,
-			m.SenderID, m.SenderName, m.SenderIsMe, m.Body, m.ObservedAt,
-			m.Mentioned, m.SkippedAt, m.SkipReason, m.SkippedBy,
-		).Scan(&m.ID, &m.CreatedAt, &inserted)
+		insertCols += ", skipped_at, skip_reason, skipped_by"
+		insertVals += ", $12, $13, $14"
+		args = append(args, m.SkippedAt, m.SkipReason, m.SkippedBy)
 	}
 
-	// Normal path without skip columns.
-	const q = `
-INSERT INTO messages (user_id, space_key, space_name, thread_key, message_key, sender_id, sender_name, sender_is_me, body, observed_at, mentioned)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-ON CONFLICT (user_id, message_key) DO UPDATE SET
-    sender_id = CASE
-        WHEN messages.sender_id = '' AND EXCLUDED.sender_id <> '' THEN EXCLUDED.sender_id
-        ELSE messages.sender_id
-    END
-RETURNING id, created_at, (xmax = 0) AS inserted`
-	return inserted, db.QueryRow(ctx, q,
-		m.UserID, m.SpaceKey, m.SpaceName, m.ThreadKey, m.MessageKey,
-		m.SenderID, m.SenderName, m.SenderIsMe, m.Body, m.ObservedAt,
-		m.Mentioned,
-	).Scan(&m.ID, &m.CreatedAt, &inserted)
+	insertSQL := `INSERT INTO messages (` + insertCols + `) VALUES (` + insertVals + `)
+ON CONFLICT (user_id, message_key) DO NOTHING
+RETURNING id, created_at`
+	err = db.QueryRow(ctx, insertSQL, args...).Scan(&m.ID, &m.CreatedAt)
+	if err == nil {
+		// New row.
+		return true, nil
+	}
+	if !errors.Is(err, ErrNoRows) {
+		return false, err
+	}
+
+	// Conflict path: enrich sender_id if it's still empty, then read the row.
+	if _, err := db.Exec(ctx,
+		`UPDATE messages SET sender_id = $3
+		 WHERE user_id = $1 AND message_key = $2
+		   AND sender_id = '' AND $3 <> ''`,
+		m.UserID, m.MessageKey, m.SenderID,
+	); err != nil {
+		return false, err
+	}
+	return false, db.QueryRow(ctx,
+		`SELECT id, created_at FROM messages WHERE user_id = $1 AND message_key = $2`,
+		m.UserID, m.MessageKey,
+	).Scan(&m.ID, &m.CreatedAt)
 }
 
 type InboxRow struct {
@@ -226,17 +234,21 @@ ORDER BY m.observed_at ASC`
 	if aroundLimit <= 0 {
 		aroundLimit = 20
 	}
+	// Pre-compute the window in Go so we don't need Postgres's interval math
+	// or EXTRACT(EPOCH ...). ORDER BY uses julianday delta as a portable
+	// "absolute time delta" approximation.
+	lo := anchor.ObservedAt.Add(-aroundWindow)
+	hi := anchor.ObservedAt.Add(aroundWindow)
 	qAround := `
 SELECT m.id, m.user_id, m.space_key, m.space_name, m.thread_key, m.message_key,
        m.sender_id, ` + senderNameExpr + `, m.sender_is_me, m.body, m.observed_at, m.created_at
 FROM messages m` + memberJoin + `
 WHERE m.user_id = $1 AND m.space_key = $2
   AND COALESCE(m.thread_key, '') <> COALESCE($3, '')
-  AND m.observed_at BETWEEN ($4::timestamptz - $5::interval) AND ($4::timestamptz + $5::interval)
-ORDER BY ABS(EXTRACT(EPOCH FROM (m.observed_at - $4::timestamptz)))
-LIMIT $6`
-	interval := fmt.Sprintf("%d seconds", int(aroundWindow.Seconds()))
-	rows, err := db.Query(ctx, qAround, userID, anchor.SpaceKey, anchor.ThreadKey, anchor.ObservedAt, interval, aroundLimit)
+  AND m.observed_at BETWEEN $4 AND $5
+ORDER BY ABS(julianday(m.observed_at) - julianday($6))
+LIMIT $7`
+	rows, err := db.Query(ctx, qAround, userID, anchor.SpaceKey, anchor.ThreadKey, lo, hi, anchor.ObservedAt, aroundLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -541,16 +553,20 @@ type UserSettings struct {
 
 func (db *DB) GetUserSettings(ctx context.Context, userID int64) (*UserSettings, error) {
 	const q = `SELECT user_id, auto_mode, blocked_keywords, reply_only_when_mentioned,
-	             COALESCE(freshness_window_minutes, 30), COALESCE(debug_mode, false),
-	             COALESCE(safety_rails_enabled, true),
-	             COALESCE(safety_rules, '{"money": true}'::jsonb)
+	             COALESCE(freshness_window_minutes, 30), COALESCE(debug_mode, 0),
+	             COALESCE(safety_rails_enabled, 1),
+	             COALESCE(safety_rules, '{"money": true}')
 	           FROM user_settings WHERE user_id=$1`
 	var s UserSettings
+	var safetyRulesJSON string
 	err := db.QueryRow(ctx, q, userID).Scan(
 		&s.UserID, &s.AutoMode, &s.BlockedKeywords, &s.ReplyOnlyWhenMentioned,
 		&s.FreshnessWindowMinutes, &s.DebugMode,
-		&s.SafetyRailsEnabled, &s.SafetyRules,
+		&s.SafetyRailsEnabled, &safetyRulesJSON,
 	)
+	if err == nil && safetyRulesJSON != "" {
+		_ = json.Unmarshal([]byte(safetyRulesJSON), &s.SafetyRules)
+	}
 	if errors.Is(err, ErrNoRows) {
 		// Create a default row.
 		_, err := db.Exec(ctx, `INSERT INTO user_settings(user_id) VALUES ($1) ON CONFLICT DO NOTHING`, userID)

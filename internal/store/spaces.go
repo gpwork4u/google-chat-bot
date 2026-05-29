@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -81,20 +83,23 @@ const recentSpacesWindow = "30 minutes"
 // Passing sessionStart=zero falls back to the window-only behavior.
 func (db *DB) ListSpaces(ctx context.Context, userID int64, sessionStart time.Time) ([]SpaceRow, error) {
 	args := []any{userID}
-	floorExpr := `NOW() - INTERVAL '` + recentSpacesWindow + `'`
+	// SQLite's date math: datetime('now', '-30 minutes'). MAX(a,b) is the
+	// scalar greater-of-two (NOT the aggregate). NULL sort defaults to NULLS
+	// LAST for ORDER BY DESC.
+	floorExpr := `datetime('now', '-` + recentSpacesWindow + `')`
 	if !sessionStart.IsZero() {
 		args = append(args, sessionStart)
-		floorExpr = `GREATEST($2::timestamptz, NOW() - INTERVAL '` + recentSpacesWindow + `')`
+		floorExpr = `MAX($2, datetime('now', '-` + recentSpacesWindow + `'))`
 	}
 	q := `
 SELECT
   m.space_key,
   COALESCE(NULLIF(dir.display_name, ''), MAX(m.space_name)) AS space_name,
-  COALESCE(s.disabled, TRUE) AS disabled,
-  COALESCE(s.mention_only, FALSE) AS mention_only,
+  COALESCE(s.disabled, 1) AS disabled,
+  COALESCE(s.mention_only, 0) AS mention_only,
   COALESCE(s.auto_mode_override, 'inherit') AS auto_mode_override,
   COALESCE(s.safety_rails_override, 'inherit') AS safety_rails_override,
-  COALESCE(s.blocked_keywords, '{}') AS blocked_keywords,
+  COALESCE(s.blocked_keywords, '[]') AS blocked_keywords,
   count(*) AS message_count,
   MAX(m.observed_at) AS last_at
 FROM messages m
@@ -106,7 +111,7 @@ WHERE m.user_id = $1
   AND m.space_key <> ''
   AND m.observed_at >= ` + floorExpr + `
 GROUP BY m.space_key, s.disabled, s.mention_only, s.auto_mode_override, s.safety_rails_override, s.blocked_keywords, dir.display_name
-ORDER BY last_at DESC NULLS LAST`
+ORDER BY last_at DESC`
 	rows, err := db.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -115,13 +120,25 @@ ORDER BY last_at DESC NULLS LAST`
 	var out []SpaceRow
 	for rows.Next() {
 		var r SpaceRow
+		var blockedRaw string
 		if err := rows.Scan(
 			&r.SpaceKey, &r.SpaceName, &r.Disabled, &r.MentionOnly,
-			&r.AutoModeOverride, &r.SafetyRailsOverride, &r.BlockedKeywords, &r.MessageCount, &r.LastMessageAt,
+			&r.AutoModeOverride, &r.SafetyRailsOverride, &blockedRaw, &r.MessageCount, &r.LastMessageAt,
 		); err != nil {
 			return nil, err
 		}
 		r.Enabled = !r.Disabled
+		if blockedRaw != "" && blockedRaw != "{}" && blockedRaw != "[]" {
+			// Could be JSON array (SQLite) or pg array literal "{a,b}" (legacy).
+			if strings.HasPrefix(blockedRaw, "[") {
+				_ = json.Unmarshal([]byte(blockedRaw), &r.BlockedKeywords)
+			} else if strings.HasPrefix(blockedRaw, "{") {
+				inner := strings.Trim(blockedRaw, "{}")
+				if inner != "" {
+					r.BlockedKeywords = strings.Split(inner, ",")
+				}
+			}
+		}
 		if r.BlockedKeywords == nil {
 			r.BlockedKeywords = []string{}
 		}
