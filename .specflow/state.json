@@ -5,12 +5,12 @@
     "issue": "https://github.com/gpwork4u/google-chat-bot/issues/68",
     "milestone": "Sprint 5: CR-001 D-skip mark"
   },
-  "phase": "phase-7-next",
+  "phase": "phase-5-bdd",
   "last_action": "主 worktree race condition 救援；rescue/sprint-6-wip 備份；重啟 backend+frontend 完成 #84/#85/#87",
-  "next_action": "Sprint 6 完成；待決定 release v0.6.0 或進 Sprint 7",
+  "next_action": "Sprint 7 PR all merged. 下一步：BDD 全測 + verifier",
   "in_flight_agents": [],
   "open_questions": [],
-  "updated_at": "2026-05-15T00:11:10Z",
+  "updated_at": "2026-05-15T06:19:58Z",
   "lane_closed": {
     "feature": true,
     "design": true,
