@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"strings"
 	"time"
@@ -121,11 +122,19 @@ ORDER BY last_at DESC`
 	for rows.Next() {
 		var r SpaceRow
 		var blockedRaw string
+		// MAX(observed_at) loses its TIMESTAMP column type so modernc.org/sqlite
+		// can't auto-convert string→time.Time. Scan as NullString and parse.
+		var lastAt sql.NullString
 		if err := rows.Scan(
 			&r.SpaceKey, &r.SpaceName, &r.Disabled, &r.MentionOnly,
-			&r.AutoModeOverride, &r.SafetyRailsOverride, &blockedRaw, &r.MessageCount, &r.LastMessageAt,
+			&r.AutoModeOverride, &r.SafetyRailsOverride, &blockedRaw, &r.MessageCount, &lastAt,
 		); err != nil {
 			return nil, err
+		}
+		if lastAt.Valid {
+			if t, err := parseSQLiteTime(lastAt.String); err == nil {
+				r.LastMessageAt = &t
+			}
 		}
 		r.Enabled = !r.Disabled
 		if blockedRaw != "" && blockedRaw != "{}" && blockedRaw != "[]" {

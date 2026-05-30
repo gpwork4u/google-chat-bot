@@ -64,7 +64,7 @@ func Open(ctx context.Context, dsn string) (*DB, error) {
 // resolveSQLitePath converts whatever DSN config gives us into a (path,
 // querystring) pair suitable for `file:` URLs.
 func resolveSQLitePath(dsn string) (path, opts string) {
-	defaultOpts := "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
+	defaultOpts := "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_time_format=sqlite"
 	dsn = strings.TrimSpace(dsn)
 	if dsn == "" || strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
 		return "./data/chatbot.db", defaultOpts
@@ -88,17 +88,49 @@ func (db *DB) Close() {
 // Exec runs a non-result query, rewriting pgx-style $N placeholders to ? on
 // the way through.
 func (db *DB) Exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return db.sqlDB.ExecContext(ctx, translatePlaceholders(query), args...)
+	return db.sqlDB.ExecContext(ctx, translatePlaceholders(query), normalizeArgs(args)...)
 }
 
 // Query runs a multi-row query.
 func (db *DB) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return db.sqlDB.QueryContext(ctx, translatePlaceholders(query), args...)
+	return db.sqlDB.QueryContext(ctx, translatePlaceholders(query), normalizeArgs(args)...)
 }
 
 // QueryRow runs a single-row query.
 func (db *DB) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
-	return db.sqlDB.QueryRowContext(ctx, translatePlaceholders(query), args...)
+	return db.sqlDB.QueryRowContext(ctx, translatePlaceholders(query), normalizeArgs(args)...)
+}
+
+// normalizeArgs is currently a passthrough — the modernc.org/sqlite driver
+// handles time.Time bind/scan when configured with _time_format in the DSN.
+// Kept as a hook for future arg coercions.
+func normalizeArgs(args []any) []any {
+	return args
+}
+
+// parseSQLiteTime parses one of the formats the SQLite driver may return as a
+// string when the column type can't be inferred (e.g. aggregate functions
+// like MAX(timestamp_col)). Tries the formats modernc.org/sqlite writes plus
+// RFC3339 fallback.
+func parseSQLiteTime(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, nil
+	}
+	layouts := []string{
+		"2006-01-02 15:04:05.999999999 -0700 MST", // Go time.Time.String()
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05.999",
+		"2006-01-02 15:04:05",
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05.999Z",
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("parseSQLiteTime: unrecognized format %q", s)
 }
 
 // BeginTx exposes a transaction; pgx-shaped Tx wrapper would be a small layer
