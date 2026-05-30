@@ -37,9 +37,11 @@ type MessageForAPI struct {
 	ID         int64      `json:"id"`
 	MessageID  string     `json:"message_id"`  // message_key in DB (Google Chat message resource name)
 	SpaceKey   string     `json:"space_key"`
+	SpaceName  string     `json:"space_name"` // resolved via spaces_directory (or "")
 	ThreadKey  string     `json:"thread_key"`
 	SenderID   string     `json:"sender_id"`
 	SenderName string     `json:"sender_name"`
+	SenderIsMe bool       `json:"sender_is_me"`
 	Body       string     `json:"body"`
 	ObservedAt time.Time  `json:"observed_at"`
 	Mentioned  bool       `json:"mentioned"`
@@ -54,21 +56,25 @@ SELECT
   m.id,
   m.message_key,
   m.space_key,
+  COALESCE(NULLIF(dir.display_name, ''), m.space_name, '') AS space_name,
   m.thread_key,
   m.sender_id,
   ` + senderNameExpr + ` AS sender_name,
+  m.sender_is_me,
   m.body,
   m.observed_at,
   m.mentioned,
   m.skipped_at
-FROM messages m` + memberJoin
+FROM messages m` + memberJoin + `
+LEFT JOIN spaces_directory dir
+  ON dir.user_id = m.user_id AND dir.space_key = m.space_key`
 
 // scanMessageForAPI scans a single row produced by listMessagesSelectExpr.
 func scanMessageForAPI(row rowScanner) (*MessageForAPI, error) {
 	var m MessageForAPI
 	if err := row.Scan(
-		&m.ID, &m.MessageID, &m.SpaceKey, &m.ThreadKey,
-		&m.SenderID, &m.SenderName, &m.Body,
+		&m.ID, &m.MessageID, &m.SpaceKey, &m.SpaceName, &m.ThreadKey,
+		&m.SenderID, &m.SenderName, &m.SenderIsMe, &m.Body,
 		&m.ObservedAt, &m.Mentioned, &m.SkippedAt,
 	); err != nil {
 		return nil, err
