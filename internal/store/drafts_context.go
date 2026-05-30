@@ -108,7 +108,7 @@ func (db *DB) recentUserStyleSamples(ctx context.Context, userID int64, limit in
 	q := `
 SELECT ` + senderNameExpr + `, m.sender_is_me, m.body, m.observed_at
 FROM messages m` + memberJoin + `
-WHERE m.user_id = $1 AND m.sender_is_me = TRUE AND length(m.body) > 2
+WHERE m.user_id = $1 AND m.sender_is_me = 1 AND length(m.body) > 2
 ORDER BY m.observed_at DESC
 LIMIT $2`
 	rows, err := db.Query(ctx, q, userID, limit)

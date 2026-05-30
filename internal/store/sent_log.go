@@ -89,9 +89,9 @@ func (db *DB) ListSentLog(ctx context.Context, userID int64, filter SentFilter, 
 
 	// Mode filter: auto_sent=true → "auto", else "approved".
 	if filter.Mode == "auto" {
-		conds = append(conds, "d.auto_sent = TRUE")
+		conds = append(conds, "d.auto_sent = 1")
 	} else if filter.Mode == "approved" {
-		conds = append(conds, "d.auto_sent = FALSE")
+		conds = append(conds, "d.auto_sent = 0")
 	}
 
 	// Space filter.

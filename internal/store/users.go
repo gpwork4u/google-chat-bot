@@ -122,7 +122,7 @@ func (db *DB) AutoDetectChatIdentity(ctx context.Context, userID int64) error {
 	err := db.QueryRow(ctx, `
 SELECT sender_id, sender_name
 FROM messages
-WHERE user_id = $1 AND sender_is_me = TRUE
+WHERE user_id = $1 AND sender_is_me = 1
   AND sender_name <> '' AND sender_id <> ''
 GROUP BY sender_id, sender_name
 ORDER BY COUNT(*) DESC

@@ -71,10 +71,24 @@ WHERE user_id = $1 AND sender_is_me = 1 AND body <> ''` + junkFilter
 	// Human-readable space label. Same fallback chain ListClaudePending
 	// uses: spaces_directory → "<peer> (DM)" → messages.space_name → key.
 	// Kept as a SQL fragment so stats/samples/by_space stay in lockstep.
+	// SQLite has no LATERAL / array_agg / array_length. Inline as a
+	// correlated scalar subquery that returns the single-peer name + " (DM)"
+	// only when the space has exactly one non-self speaker.
 	const labelExpr = `COALESCE(
   NULLIF(dir.display_name, ''),
-  CASE WHEN array_length(peer.names, 1) = 1
-       THEN peer.names[1] || ' (DM)' END,
+  (
+    SELECT COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name) || ' (DM)'
+    FROM messages peer_m
+    LEFT JOIN chat_members cm2
+      ON cm2.user_id = peer_m.user_id AND cm2.member_id = peer_m.sender_id
+    WHERE peer_m.user_id = m.user_id
+      AND peer_m.space_key = m.space_key
+      AND peer_m.sender_is_me = 0
+      AND COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name) <> ''
+    GROUP BY peer_m.space_key
+    HAVING COUNT(DISTINCT COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name)) = 1
+    LIMIT 1
+  ),
   CASE WHEN m.space_name IS NULL
          OR m.space_name = ''
          OR m.space_name = m.space_key
@@ -84,23 +98,13 @@ WHERE user_id = $1 AND sender_is_me = 1 AND body <> ''` + junkFilter
 )`
 	const peerJoin = `
 LEFT JOIN spaces_directory dir
-  ON dir.user_id = m.user_id AND dir.space_key = m.space_key
-LEFT JOIN LATERAL (
-  SELECT array_agg(DISTINCT COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name)) AS names
-  FROM messages peer_m
-  LEFT JOIN chat_members cm2
-    ON cm2.user_id = peer_m.user_id AND cm2.member_id = peer_m.sender_id
-  WHERE peer_m.user_id = m.user_id
-    AND peer_m.space_key = m.space_key
-    AND peer_m.sender_is_me = FALSE
-    AND COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name) <> ''
-) peer ON TRUE`
+  ON dir.user_id = m.user_id AND dir.space_key = m.space_key`
 
 	// 2. by_space counts (top 20 only to keep response bounded).
 	qBySpace := `
 SELECT ` + labelExpr + ` AS label, count(*) AS n
 FROM messages m` + peerJoin + `
-WHERE m.user_id = $1 AND m.sender_is_me = TRUE AND m.body <> ''` + junkFilter + `
+WHERE m.user_id = $1 AND m.sender_is_me = 1 AND m.body <> ''` + junkFilter + `
 GROUP BY label
 ORDER BY n DESC
 LIMIT 20`
@@ -127,7 +131,7 @@ LIMIT 20`
 		q = `
 SELECT m.body, m.space_key, ` + labelExpr + `, m.observed_at
 FROM messages m` + peerJoin + `
-WHERE m.user_id = $1 AND m.sender_is_me = TRUE AND m.body <> ''
+WHERE m.user_id = $1 AND m.sender_is_me = 1 AND m.body <> ''
   AND length(m.body) >= $2
   AND m.space_key = $4` + junkFilter + `
 ORDER BY m.observed_at DESC
@@ -137,7 +141,7 @@ LIMIT $3`
 		q = `
 SELECT m.body, m.space_key, ` + labelExpr + `, m.observed_at
 FROM messages m` + peerJoin + `
-WHERE m.user_id = $1 AND m.sender_is_me = TRUE AND m.body <> ''
+WHERE m.user_id = $1 AND m.sender_is_me = 1 AND m.body <> ''
   AND length(m.body) >= $2` + junkFilter + `
 ORDER BY m.observed_at DESC
 LIMIT $3`
@@ -187,7 +191,7 @@ type ClaudePendingFilter struct {
 // answer-filtering preferences:
 //   - sender is not me (relaxed when debug=true)
 //   - no draft exists yet for the message
-//   - space_settings.disabled = FALSE (explicit whitelist — anything the
+//   - space_settings.disabled = 0 (explicit whitelist — anything the
 //     user hasn't toggled on in the Channel 設定 list is excluded)
 //   - if user_settings.reply_only_when_mentioned is TRUE, the body must
 //     contain a literal "@<local user name>" substring (case-insensitive,
@@ -223,12 +227,12 @@ func (db *DB) ListClaudePending(ctx context.Context, userID int64, since time.Ti
 	}
 
 	selfFilter := `
-  AND m.sender_is_me = FALSE
+  AND m.sender_is_me = 0
   AND (COALESCE(u.name, '') = '' OR m.sender_name IS NULL OR m.sender_name = '' OR lower(m.sender_name) <> lower(u.name))`
 	mentionFilter := `
   AND (
-    COALESCE(us.reply_only_when_mentioned, FALSE) = FALSE
-    OR (COALESCE(u.name, '') <> '' AND position(lower('@' || u.name) in lower(m.body)) > 0)
+    COALESCE(us.reply_only_when_mentioned, 0) = 0
+    OR (COALESCE(u.name, '') <> '' AND instr(lower(m.body), lower('@' || u.name)) > 0)
   )`
 	if debug {
 		selfFilter = ""
@@ -238,7 +242,7 @@ func (db *DB) ListClaudePending(ctx context.Context, userID int64, since time.Ti
 	args := []any{userID, limit}
 	if !since.IsZero() {
 		sinceFilter = `
-  AND m.observed_at >= $3::timestamptz`
+  AND m.observed_at >= $3`
 		args = append(args, since)
 	}
 
@@ -250,14 +254,14 @@ func (db *DB) ListClaudePending(ctx context.Context, userID int64, since time.Ti
 	}
 	if f.SenderContains != "" {
 		args = append(args, "%"+f.SenderContains+"%")
-		extraClauses += fmt.Sprintf("\n  AND COALESCE(NULLIF(cm.display_name, ''), m.sender_name) ILIKE $%d", len(args))
+		extraClauses += fmt.Sprintf("\n  AND COALESCE(NULLIF(cm.display_name, ''), m.sender_name) LIKE $%d", len(args))
 	}
 	if f.BodyContains != "" {
 		args = append(args, "%"+f.BodyContains+"%")
-		extraClauses += fmt.Sprintf("\n  AND m.body ILIKE $%d", len(args))
+		extraClauses += fmt.Sprintf("\n  AND m.body LIKE $%d", len(args))
 	}
 	if f.MentionedOnly {
-		extraClauses += "\n  AND (COALESCE(u.name, '') <> '' AND position(lower('@' || u.name) in lower(m.body)) > 0)"
+		extraClauses += "\n  AND (COALESCE(u.name, '') <> '' AND instr(lower(m.body), lower('@' || u.name)) > 0)"
 	}
 
 	offsetClause := ""
@@ -266,14 +270,27 @@ func (db *DB) ListClaudePending(ctx context.Context, userID int64, since time.Ti
 		offsetClause = fmt.Sprintf(" OFFSET $%d", len(args))
 	}
 
+	// SQLite doesn't have array_agg / LATERAL / array_length. The "(DM)" label
+	// for 1-person spaces uses a scalar subquery + HAVING instead.
 	q := fmt.Sprintf(`
 SELECT
   m.id,
   m.space_key,
   COALESCE(
     NULLIF(dir.display_name, ''),
-    CASE WHEN array_length(peer.names, 1) = 1
-         THEN peer.names[1] || ' (DM)' END,
+    (
+      SELECT COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name) || ' (DM)'
+      FROM messages peer_m
+      LEFT JOIN chat_members cm2
+        ON cm2.user_id = peer_m.user_id AND cm2.member_id = peer_m.sender_id
+      WHERE peer_m.user_id = m.user_id
+        AND peer_m.space_key = m.space_key
+        AND peer_m.sender_is_me = 0
+        AND COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name) <> ''
+      GROUP BY peer_m.space_key
+      HAVING COUNT(DISTINCT COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name)) = 1
+      LIMIT 1
+    ),
     CASE WHEN m.space_name IS NULL
            OR m.space_name = ''
            OR m.space_name = m.space_key
@@ -286,8 +303,8 @@ SELECT
   COALESCE(NULLIF(cm.display_name, ''), m.sender_name) AS sender_name,
   m.body, m.observed_at,
   CASE
-    WHEN COALESCE(u.name, '') = '' THEN FALSE
-    ELSE position(lower('@' || u.name) in lower(m.body)) > 0
+    WHEN COALESCE(u.name, '') = '' THEN 0
+    ELSE CASE WHEN instr(lower(m.body), lower('@' || u.name)) > 0 THEN 1 ELSE 0 END
   END AS mentioned
 FROM messages m
 LEFT JOIN drafts d
@@ -302,20 +319,10 @@ LEFT JOIN spaces_directory dir
   ON dir.user_id = m.user_id AND dir.space_key = m.space_key
 LEFT JOIN chat_members cm
   ON cm.user_id = m.user_id AND cm.member_id = m.sender_id
-LEFT JOIN LATERAL (
-  SELECT array_agg(DISTINCT COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name)) AS names
-  FROM messages peer_m
-  LEFT JOIN chat_members cm2
-    ON cm2.user_id = peer_m.user_id AND cm2.member_id = peer_m.sender_id
-  WHERE peer_m.user_id = m.user_id
-    AND peer_m.space_key = m.space_key
-    AND peer_m.sender_is_me = FALSE
-    AND COALESCE(NULLIF(cm2.display_name, ''), peer_m.sender_name) <> ''
-) peer ON TRUE
 WHERE m.user_id = $1
   AND d.id IS NULL
   AND m.skipped_at IS NULL
-  AND COALESCE(s.disabled, TRUE) = FALSE%s%s%s%s
+  AND COALESCE(s.disabled, 1) = 0%s%s%s%s
 ORDER BY m.observed_at DESC
 LIMIT $2%s`, selfFilter, mentionFilter, sinceFilter, extraClauses, offsetClause)
 	rows, err := db.Query(ctx, q, args...)
@@ -346,12 +353,12 @@ func (db *DB) CountClaudePending(ctx context.Context, userID int64, since time.T
 	}
 
 	selfFilter := `
-  AND m.sender_is_me = FALSE
+  AND m.sender_is_me = 0
   AND (COALESCE(u.name, '') = '' OR m.sender_name IS NULL OR m.sender_name = '' OR lower(m.sender_name) <> lower(u.name))`
 	mentionFilter := `
   AND (
-    COALESCE(us.reply_only_when_mentioned, FALSE) = FALSE
-    OR (COALESCE(u.name, '') <> '' AND position(lower('@' || u.name) in lower(m.body)) > 0)
+    COALESCE(us.reply_only_when_mentioned, 0) = 0
+    OR (COALESCE(u.name, '') <> '' AND instr(lower(m.body), lower('@' || u.name)) > 0)
   )`
 	if debug {
 		selfFilter = ""
@@ -362,7 +369,7 @@ func (db *DB) CountClaudePending(ctx context.Context, userID int64, since time.T
 	sinceFilter := ""
 	if !since.IsZero() {
 		args = append(args, since)
-		sinceFilter = fmt.Sprintf("\n  AND m.observed_at >= $%d::timestamptz", len(args))
+		sinceFilter = fmt.Sprintf("\n  AND m.observed_at >= $%d", len(args))
 	}
 
 	extraClauses := ""
@@ -372,14 +379,14 @@ func (db *DB) CountClaudePending(ctx context.Context, userID int64, since time.T
 	}
 	if f.SenderContains != "" {
 		args = append(args, "%"+f.SenderContains+"%")
-		extraClauses += fmt.Sprintf("\n  AND COALESCE(NULLIF(cm.display_name, ''), m.sender_name) ILIKE $%d", len(args))
+		extraClauses += fmt.Sprintf("\n  AND COALESCE(NULLIF(cm.display_name, ''), m.sender_name) LIKE $%d", len(args))
 	}
 	if f.BodyContains != "" {
 		args = append(args, "%"+f.BodyContains+"%")
-		extraClauses += fmt.Sprintf("\n  AND m.body ILIKE $%d", len(args))
+		extraClauses += fmt.Sprintf("\n  AND m.body LIKE $%d", len(args))
 	}
 	if f.MentionedOnly {
-		extraClauses += "\n  AND (COALESCE(u.name, '') <> '' AND position(lower('@' || u.name) in lower(m.body)) > 0)"
+		extraClauses += "\n  AND (COALESCE(u.name, '') <> '' AND instr(lower(m.body), lower('@' || u.name)) > 0)"
 	}
 
 	q := fmt.Sprintf(`
@@ -398,7 +405,7 @@ LEFT JOIN chat_members cm
 WHERE m.user_id = $1
   AND d.id IS NULL
   AND m.skipped_at IS NULL
-  AND COALESCE(s.disabled, TRUE) = FALSE%s%s%s%s`,
+  AND COALESCE(s.disabled, 1) = 0%s%s%s%s`,
 		selfFilter, mentionFilter, sinceFilter, extraClauses)
 
 	var total int

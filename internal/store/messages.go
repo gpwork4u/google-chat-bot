@@ -136,9 +136,8 @@ SELECT
 FROM messages m
 LEFT JOIN spaces_directory dir
   ON dir.user_id = m.user_id AND dir.space_key = m.space_key` + memberJoin + `
-LEFT JOIN LATERAL (
-  SELECT * FROM drafts WHERE drafts.message_id = m.id ORDER BY id DESC LIMIT 1
-) d ON TRUE
+LEFT JOIN drafts d
+  ON d.id = (SELECT id FROM drafts WHERE drafts.message_id = m.id ORDER BY id DESC LIMIT 1)
 WHERE m.user_id = $1
 ORDER BY m.observed_at DESC
 LIMIT $2`
@@ -431,7 +430,7 @@ UPDATE drafts SET
   safety_overridden_by = $2,
   updated_at = NOW()
 WHERE id = $1
-  AND array_length(safety_flags, 1) > 0`
+  AND safety_flags IS NOT NULL AND safety_flags <> '' AND safety_flags <> '{}' AND safety_flags <> '[]'`
 	_, err := db.Exec(ctx, q, draftID, actor)
 	return err
 }
@@ -456,7 +455,7 @@ func (db *DB) GetDraftSafetyFlags(ctx context.Context, draftID int64) ([]string,
 // treating them as replies from "someone else").
 func (db *DB) MarkMessageAsMine(ctx context.Context, userID int64, messageKey string) error {
 	_, err := db.Exec(ctx,
-		`UPDATE messages SET sender_is_me = TRUE WHERE user_id=$1 AND message_key=$2 AND sender_is_me = FALSE`,
+		`UPDATE messages SET sender_is_me = 1 WHERE user_id=$1 AND message_key=$2 AND sender_is_me = 0`,
 		userID, messageKey)
 	return err
 }
